@@ -1,4 +1,4 @@
-module Data.JSONDate where
+module Data.Argonaut.JSONDate where
 
 import Prelude
 import Data.Int as Int
