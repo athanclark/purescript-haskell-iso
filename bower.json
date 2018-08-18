@@ -12,6 +12,7 @@
     "purescript-now": "3.x",
     "purescript-string-parsers": "^3.1.0",
     "purescript-js-date": "^4.0.0",
+    "purescript-zeromq": "^0.0.1",
     "purescript-argonaut": "^3.1.0"
   },
   "devDependencies": {
