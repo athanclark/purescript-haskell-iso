@@ -12,11 +12,15 @@ import Data.Map (Map)
 import Data.Map as Map
 import Type.Proxy (Proxy (..))
 import Control.Alternative ((<|>))
-import Control.Monad.Reader (ReaderT)
+import Control.Monad.Reader (ReaderT, ask)
+import Control.Monad.State (evalState)
 import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Ref (REF, Ref, newRef)
+import Control.Monad.Eff.Class (liftEff)
+import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef, modifyRef)
+import Control.Monad.Eff.Random (RANDOM)
 import Test.QuickCheck (class Arbitrary, arbitrary)
-import Test.QuickCheck.Gen (Gen)
+import Test.QuickCheck.Gen (Gen, unGen)
+import Test.QuickCheck.LCG (randomSeed)
 import Unsafe.Coerce (unsafeCoerce)
 
 
@@ -151,3 +155,123 @@ emptyTestSuiteState = newRef Map.empty
 
 
 type TestSuiteM eff a = ReaderT TestSuiteState (Eff eff) a
+
+
+registerTopic :: forall a eff
+               . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+              => TestTopic -> Proxy a -> TestSuiteM (ref :: REF | eff) Unit
+registerTopic topic p = do
+  xsRef <- ask
+  liftEff $ do
+    state <- emptyTestTopicState p
+    modifyRef xsRef (Map.insert topic state)
+
+
+data HasTopic a
+  = HasTopic a
+  | NoTopic
+
+
+data GenValue a
+  = DoneGenerating
+  | GenValue a
+
+
+data GotClientGenValue a
+  = NoClientGenValue
+  | GotClientGenValue a
+
+
+data HasClientG a
+  = NoClientG
+  | HasClientG a
+
+
+data HasServerG a
+  = NoServerG
+  | HasServerG a
+
+
+data HasServerS a
+  = NoServerS
+  | HasServerS a
+
+
+data HasServerD a
+  = NoServerD
+  | HasServerD a
+
+
+data HasClientD a
+  = NoClientD
+  | HasClientD a
+
+
+data DesValue a
+  = CantDes String
+  | DesValue a
+
+
+data HasClientS a
+  = NoClientS
+  | HasClientS a
+
+
+data ServerSerializedMatch a
+  = ServerSerializedMatch a
+  | ServerSerializedMismatch
+
+
+data ServerDeSerializedMatch a
+  = ServerDeSerializedMatch a
+  | ServerDeSerializedMismatch
+
+
+data ClientSerializedMatch a
+  = ClientSerializedMatch a
+  | ClientSerializedMismatch
+
+
+data ClientDeSerializedMatch a
+  = ClientDeSerializedMatch a
+  | ClientDeSerializedMismatch
+
+
+
+getTopicState :: forall eff
+               . TestSuiteState
+              -> TestTopic
+              -> Eff (ref :: REF | eff) (HasTopic (Exists TestTopicState))
+getTopicState xsRef topic = do
+  xs <- readRef xsRef
+  case Map.lookup topic xs of
+    Nothing -> pure NoTopic
+    Just x -> pure (HasTopic x)
+
+
+
+generateValue :: forall eff
+               . TestSuiteState
+              -> TestTopic
+              -> Eff
+                 ( ref :: REF
+                 , random :: RANDOM
+                 | eff) (HasTopic (GenValue ChannelMsg))
+generateValue xsRef topic = do
+  mState <- getTopicState xsRef topic
+  case mState of
+    NoTopic -> pure NoTopic
+    HasTopic ex ->
+      let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+             => TestTopicState a -> Eff (ref :: REF, random :: RANDOM | eff) (GenValue ChannelMsg)
+          go (TestTopicState {size,generate,serialize,serverG}) = do
+            s <- readRef size
+            if s >= 100
+              then pure DoneGenerating
+              else do
+                g <- randomSeed
+                let val = evalState (unGen generate) {newSeed: g, size: s}
+                modifyRef size (\x -> x + 1)
+                writeRef serverG (Just val)
+                pure $ GenValue $ GeneratedInput topic $ serialize val
+      in  HasTopic <$> runExists go ex
