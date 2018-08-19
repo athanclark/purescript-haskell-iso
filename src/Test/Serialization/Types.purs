@@ -249,7 +249,6 @@ getTopicState xsRef topic = do
     Just x -> pure (HasTopic x)
 
 
-
 generateValue :: forall eff
                . TestSuiteState
               -> TestTopic
@@ -264,7 +263,7 @@ generateValue xsRef topic = do
     HasTopic ex ->
       let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
              => TestTopicState a -> Eff (ref :: REF, random :: RANDOM | eff) (GenValue ChannelMsg)
-          go (TestTopicState {size,generate,serialize,serverG}) = do
+          go (TestTopicState {size,generate,serialize,clientG}) = do
             s <- readRef size
             if s >= 100
               then pure DoneGenerating
@@ -272,6 +271,176 @@ generateValue xsRef topic = do
                 g <- randomSeed
                 let val = evalState (unGen generate) {newSeed: g, size: s}
                 modifyRef size (\x -> x + 1)
-                writeRef serverG (Just val)
+                writeRef clientG (Just val)
                 pure $ GenValue $ GeneratedInput topic $ serialize val
+      in  HasTopic <$> runExists go ex
+ 
+
+gotServerGenValue :: forall eff
+                   . TestSuiteState
+                  -> TestTopic
+                  -> Json
+                  -> Eff (ref :: REF | eff) (HasTopic (DesValue Unit))
+gotServerGenValue xsRef topic value = do
+  mState <- getTopicState xsRef topic
+  case mState of
+    NoTopic -> pure NoTopic
+    HasTopic ex ->
+      let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+             => TestTopicState a -> Eff (ref :: REF | eff) (DesValue Unit)
+          go (TestTopicState {deserialize,serverG}) = case deserialize value of
+            Left e -> pure (CantDes e)
+            Right y -> do
+              writeRef serverG (Just y)
+              pure (DesValue unit)
+      in  HasTopic <$> runExists go ex
+
+
+serializeValueServerOrigin :: forall eff
+                            . TestSuiteState
+                           -> TestTopic
+                           -> Eff (ref :: REF | eff) (HasTopic (HasServerG ChannelMsg))
+serializeValueServerOrigin xsRef topic = do
+  mState <- getTopicState xsRef topic
+  case mState of
+    NoTopic -> pure NoTopic
+    HasTopic ex ->
+      let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+             => TestTopicState a -> Eff (ref :: REF | eff) (HasServerG ChannelMsg)
+          go (TestTopicState {serialize,serverG,clientS}) = do
+            mX <- readRef serverG
+            case mX of
+              Nothing -> pure NoServerG
+              Just x -> map HasServerG $ do
+                let val = serialize x
+                writeRef clientS (Just val)
+                pure $ Serialized topic val
+      in  HasTopic <$> runExists go ex
+
+
+gotServerSerialize :: forall eff
+                    . TestSuiteState
+                   -> TestTopic
+                   -> Json
+                   -> Eff (ref :: REF | eff) (HasTopic Unit)
+gotServerSerialize xsRef topic value = do
+  mState <- getTopicState xsRef topic
+  case mState of
+    NoTopic -> pure NoTopic
+    HasTopic ex ->
+      let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+             => TestTopicState a -> Eff (ref :: REF | eff) Unit
+          go (TestTopicState {deserialize,serverS}) = do
+            writeRef serverS (Just value)
+      in  HasTopic <$> runExists go ex
+
+
+deserializeValueServerOrigin :: forall eff
+                              . TestSuiteState
+                             -> TestTopic
+                             -> Eff (ref :: REF | eff) (HasTopic (HasServerS (DesValue ChannelMsg)))
+deserializeValueServerOrigin xsRef topic = do
+  mState <- getTopicState xsRef topic
+  case mState of
+    NoTopic -> pure NoTopic
+    HasTopic ex ->
+      let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+             => TestTopicState a -> Eff (ref :: REF | eff) (HasServerS (DesValue ChannelMsg))
+          go (TestTopicState {deserialize,serverS,serverD,serialize}) = do
+            mX <- readRef serverS
+            case mX of
+              Nothing -> pure NoServerS
+              Just x -> map HasServerS $ case deserialize x of
+                Left e -> pure (CantDes e)
+                Right y -> do
+                  writeRef serverD (Just y)
+                  pure $ DesValue $ DeSerialized topic $ serialize y
+      in  HasTopic <$> runExists go ex
+
+
+gotClientDeSerialize :: forall eff
+                      . TestSuiteState
+                     -> TestTopic
+                     -> Json
+                     -> Eff (ref :: REF | eff) (HasTopic (DesValue Unit))
+gotClientDeSerialize xsRef topic value = do
+  mState <- getTopicState xsRef topic
+  case mState of
+    NoTopic -> pure NoTopic
+    HasTopic ex ->
+      let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+             => TestTopicState a -> Eff (ref :: REF | eff) (DesValue Unit)
+          go (TestTopicState {deserialize,clientD}) = case deserialize value of
+            Left e -> pure (CantDes e)
+            Right y -> do
+              writeRef clientD (Just y)
+              pure (DesValue unit)
+      in  HasTopic <$> runExists go ex
+
+
+verify :: forall eff
+        . TestSuiteState
+       -> TestTopic
+       -> Eff (ref :: REF | eff)
+          ( HasTopic
+            ( HasClientG
+              ( HasServerS
+                ( ClientSerializedMatch
+                  ( HasClientD
+                    ( DesValue
+                      ( ClientDeSerializedMatch
+                        ( HasServerG
+                          ( HasClientS
+                            ( ServerSerializedMatch
+                              ( HasServerD
+                                ( DesValue
+                                  ( ServerDeSerializedMatch Unit)))))))))))))
+verify xsRef topic = do
+  mState <- getTopicState xsRef topic
+  case mState of
+    NoTopic -> pure NoTopic
+    HasTopic ex ->
+      let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+             => TestTopicState a -> Eff (ref :: REF | eff) _
+          go (TestTopicState {serialize,deserialize,clientG,serverS,clientD,serverG,clientS,serverD}) = do
+            mClientG <- readRef clientG
+            case mClientG of
+              Nothing -> pure NoClientG
+              Just clientG' -> map HasClientG $ do
+                mServerS <- readRef serverS
+                case mServerS of
+                  Nothing -> pure NoServerS
+                  Just serverS' -> map HasServerS $ do
+                    if serialize clientG' /= serverS'
+                      then pure ClientSerializedMismatch
+                      else map ClientSerializedMatch $ do
+                        mClientD <- readRef clientD
+                        case mClientD of
+                          Nothing -> pure NoClientD
+                          Just clientD' -> map HasClientD $ do
+                            case deserialize serverS' of
+                              Left e -> pure (CantDes e)
+                              Right clientD''
+                                | clientD'' /= clientD' -> pure (DesValue ClientDeSerializedMismatch)
+                                | otherwise -> map (DesValue <<< ClientDeSerializedMatch) $ do
+                                    mServerG <- readRef serverG
+                                    case mServerG of
+                                      Nothing -> pure NoServerG
+                                      Just serverG' -> map HasServerG $ do
+                                        mClientS <- readRef clientS
+                                        case mClientS of
+                                          Nothing -> pure NoClientS
+                                          Just clientS' -> map HasClientS $ do
+                                            if serialize serverG' /= clientS'
+                                              then pure ServerSerializedMismatch
+                                              else map ServerSerializedMatch $ do
+                                                mServerD <- readRef serverD
+                                                case mServerD of
+                                                  Nothing -> pure NoServerD
+                                                  Just serverD' -> map HasServerD $ do
+                                                    case deserialize clientS' of
+                                                      Left e -> pure (CantDes e)
+                                                      Right serverS''
+                                                        | serverS'' /= serverD' -> pure (DesValue ServerDeSerializedMismatch)
+                                                        | otherwise -> pure $ DesValue $ ServerDeSerializedMatch $ unit
       in  HasTopic <$> runExists go ex
