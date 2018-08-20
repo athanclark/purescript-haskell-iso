@@ -54,12 +54,14 @@ data ClientToServer
   = GetTopics
   | ClientToServer ChannelMsg
   | ClientToServerBadParse String
+  | Finished TestTopic
 
 instance encodeJsonClientToServer :: EncodeJson ClientToServer where
   encodeJson x = case x of
     GetTopics -> encodeJson "getTopics"
     ClientToServer y -> "channelMsg" := y ~> jsonEmptyObject
     ClientToServerBadParse y -> "badParse" := y ~> jsonEmptyObject
+    Finished y -> "finished" := y ~> jsonEmptyObject
 
 instance decodeJsonClientToServer :: DecodeJson ClientToServer where
   decodeJson json = do
@@ -72,7 +74,8 @@ instance decodeJsonClientToServer :: DecodeJson ClientToServer where
           o <- decodeJson json
           let msg = ClientToServer <$> o .? "channelMsg"
               bad = ClientToServerBadParse <$> o .? "badParse"
-          msg <|> bad
+              fin = Finished <$> o .? "finished"
+          msg <|> bad <|> fin
     str <|> obj
 
 
@@ -80,12 +83,14 @@ data ServerToClient
   = TopicsAvailable (Set TestTopic)
   | ServerToClient ChannelMsg
   | ServerToClientBadParse String
+  | Continue TestTopic
 
 instance encodeJsonServerToClient :: EncodeJson ServerToClient where
   encodeJson x = case x of
     TopicsAvailable y -> "topics" := (Set.toUnfoldable y :: Array TestTopic) ~> jsonEmptyObject
     ServerToClient y -> "channelMsg" := y ~> jsonEmptyObject
     ServerToClientBadParse y -> "badParse" := y ~> jsonEmptyObject
+    Continue y -> "continue" := y ~> jsonEmptyObject
 
 instance decodeJsonServerToClient :: DecodeJson ServerToClient where
   decodeJson json = do
@@ -93,7 +98,8 @@ instance decodeJsonServerToClient :: DecodeJson ServerToClient where
     let msg = ServerToClient <$> o .? "channelMsg"
         bad = ServerToClientBadParse <$> o .? "badParse"
         top = (TopicsAvailable <<< Set.fromFoldable :: Array TestTopic -> Set TestTopic) <$> o .? "topics"
-    msg <|> bad <|> top
+        con = Continue <$> o .? "continue"
+    msg <|> bad <|> top <|> con
 
 
 
@@ -167,74 +173,150 @@ registerTopic topic p = do
     modifyRef xsRef (Map.insert topic state)
 
 
+class IsOkay a where
+  isOkay :: a -> Boolean
+
+instance isOkayUnit :: IsOkay Unit where
+  isOkay _ = true
+
+
 data HasTopic a
   = HasTopic a
   | NoTopic
 
+instance isOkayHasTopic :: IsOkay a => IsOkay (HasTopic a) where
+  isOkay x = case x of
+    NoTopic -> false
+    HasTopic y -> isOkay y
 
 data GenValue a
   = DoneGenerating
   | GenValue a
+
+instance isOkayGenValue :: IsOkay a => IsOkay (GenValue a) where
+  isOkay x = case x of
+    DoneGenerating -> false
+    GenValue y -> isOkay y
 
 
 data GotClientGenValue a
   = NoClientGenValue
   | GotClientGenValue a
 
+instance isOkayGotClientGenValue :: IsOkay a => IsOkay (GotClientGenValue a) where
+  isOkay x = case x of
+    NoClientGenValue -> false
+    GotClientGenValue y -> isOkay y
+
 
 data HasClientG a
   = NoClientG
   | HasClientG a
+
+instance isOkayHasClientG :: IsOkay a => IsOkay (HasClientG a) where
+  isOkay x = case x of
+    NoClientG -> false
+    HasClientG y -> isOkay y
 
 
 data HasServerG a
   = NoServerG
   | HasServerG a
 
+instance isOkayHasServerG :: IsOkay a => IsOkay (HasServerG a) where
+  isOkay x = case x of
+    NoServerG -> false
+    HasServerG y -> isOkay y
+
 
 data HasServerS a
   = NoServerS
   | HasServerS a
+
+instance isOkayHasServerS :: IsOkay a => IsOkay (HasServerS a) where
+  isOkay x = case x of
+    NoServerS -> false
+    HasServerS y -> isOkay y
 
 
 data HasServerD a
   = NoServerD
   | HasServerD a
 
+instance isOkayHasServerD :: IsOkay a => IsOkay (HasServerD a) where
+  isOkay x = case x of
+    NoServerD -> false
+    HasServerD y -> isOkay y
+
 
 data HasClientD a
   = NoClientD
   | HasClientD a
+
+instance isOkayHasClientD :: IsOkay a => IsOkay (HasClientD a) where
+  isOkay x = case x of
+    NoClientD -> false
+    HasClientD y -> isOkay y
 
 
 data DesValue a
   = CantDes String
   | DesValue a
 
+instance isOkayDesValue :: IsOkay a => IsOkay (DesValue a) where
+  isOkay x = case x of
+    CantDes _ -> false
+    DesValue y -> isOkay y
+
 
 data HasClientS a
   = NoClientS
   | HasClientS a
+
+instance isOkayHasClientS :: IsOkay a => IsOkay (HasClientS a) where
+  isOkay x = case x of
+    NoClientS -> false
+    HasClientS y -> isOkay y
 
 
 data ServerSerializedMatch a
   = ServerSerializedMatch a
   | ServerSerializedMismatch
 
+instance isOkayServerSerializedMatch :: IsOkay a => IsOkay (ServerSerializedMatch a) where
+  isOkay x = case x of
+    ServerSerializedMismatch -> false
+    ServerSerializedMatch y -> isOkay y
+
 
 data ServerDeSerializedMatch a
   = ServerDeSerializedMatch a
   | ServerDeSerializedMismatch
+
+instance isOkayServerDeSerializedMatch :: IsOkay a => IsOkay (ServerDeSerializedMatch a) where
+  isOkay x = case x of
+    ServerDeSerializedMismatch -> false
+    ServerDeSerializedMatch y -> isOkay y
 
 
 data ClientSerializedMatch a
   = ClientSerializedMatch a
   | ClientSerializedMismatch
 
+instance isOkayClientSerializedMatch :: IsOkay a => IsOkay (ClientSerializedMatch a) where
+  isOkay x = case x of
+    ClientSerializedMismatch -> false
+    ClientSerializedMatch y -> isOkay y
+
 
 data ClientDeSerializedMatch a
   = ClientDeSerializedMatch a
   | ClientDeSerializedMismatch
+
+instance isOkayClientDeSerializedMatch :: IsOkay a => IsOkay (ClientDeSerializedMatch a) where
+  isOkay x = case x of
+    ClientDeSerializedMismatch -> false
+    ClientDeSerializedMatch y -> isOkay y
 
 
 
