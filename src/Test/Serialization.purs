@@ -2,7 +2,10 @@ module Test.Serialization where
 
 import Test.Serialization.Types
   ( TestSuiteM, TestSuiteState, emptyTestSuiteState
-  , ClientToServer (..), ServerToClient (..), ChannelMsg (..))
+  , ClientToServer (..), ServerToClient (..), ChannelMsg (..)
+  , HasTopic (..), GenValue (..)
+  , generateValue
+  )
 
 import Prelude
 import Data.Maybe (Maybe (..))
@@ -12,16 +15,22 @@ import Data.URI.URI as URI
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Set as Set
+import Data.Argonaut (encodeJson)
+import Data.Foldable (for_)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.Rec.Class (forever)
-import Control.Monad.Aff (runAff_)
+import Control.Monad.Aff (Aff, runAff_, forkAff)
 import Control.Monad.Eff (Eff, kind Effect)
 import Control.Monad.Eff.Class (liftEff)
 import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef)
 import Control.Monad.Eff.Exception (EXCEPTION, throwException, throw)
+import Control.Monad.Eff.Random (RANDOM)
 import ZeroMQ
-  (ZEROMQ, ZMQIdent, socket, router, dealer, connect, sendJson, readJson)
+  ( ZEROMQ, socket, router, dealer, connect, sendJson, readJson
+  , Socket, Router, Dealer, Connected)
 import Node.Buffer (BUFFER)
+
+
 
 
 type ClientParams (eff :: # Effect) =
@@ -30,12 +39,12 @@ type ClientParams (eff :: # Effect) =
   }
 
 
-
 type Effects eff =
   ( ref :: REF
   , zeromq :: ZEROMQ
   , exception :: EXCEPTION
   , buffer :: BUFFER
+  , random :: RANDOM
   | eff)
 
 
@@ -49,14 +58,12 @@ startClient {controlHost,testSuite} = do
       (Just (Scheme "tcp"))
       (HierarchicalPart (Just controlHost) Nothing) Nothing Nothing
 
-  suite <- do
-    suiteStateRef <- emptyTestSuiteState
+  suiteStateRef <- emptyTestSuiteState
+  topics <- do
     runReaderT testSuite suiteStateRef
-    readRef suiteStateRef
+    Set.fromFoldable <<< Map.keys <$> readRef suiteStateRef
 
-  let topics = Set.fromFoldable (Map.keys suite)
-
-      resolve eX = case eX of
+  let resolve eX = case eX of
         Left e -> throwException e
         Right _ -> pure unit
 
@@ -67,8 +74,31 @@ startClient {controlHost,testSuite} = do
       Nothing -> liftEff $ throw "No receipt"
       Just {msg} -> case msg of
         TopicsAvailable ts
-          | ts == topics -> pure unit
+          | ts == topics -> do
+            -- spark a listening async thread
+            receiver <- forkAff (receiveClient suiteStateRef client)
+            for_ ts \t -> do
+              mX' <- liftEff $ generateValue suiteStateRef t
+              case mX' of
+                HasTopic (GenValue outgoing) ->
+                  liftEff $ sendJson unit client outgoing
+                _ -> liftEff $ throw $ "Can't generate initial value? " <> t
+            pure unit
           | otherwise -> liftEff $ throw $ "Mismatched topics: "
                       <> show ts <> ", on client: " <> show topics
-        _ -> liftEff $ throw $ "Incorrect timing?: " -- <> show msg
-    pure unit
+        _ -> liftEff $ throw $ "Incorrect timing?: " <> show (encodeJson msg)
+
+
+receiveClient :: forall eff
+               . TestSuiteState
+              -> Socket Dealer Router Connected
+              -> Aff (Effects eff) Unit
+receiveClient suiteStateRef client = forever $ do
+  mX <- readJson client
+  case mX of
+    Nothing -> liftEff $ throw "No value?"
+    Just {msg} -> case msg of
+      ServerToClientBadParse e -> liftEff $ throw $ "Bad parse: " <> e
+      ServerToClient _ -> pure unit
+      _ -> pure unit
+  pure unit
