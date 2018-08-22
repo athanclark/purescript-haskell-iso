@@ -3,8 +3,10 @@ module Test.Serialization where
 import Test.Serialization.Types
   ( TestSuiteM, TestSuiteState, emptyTestSuiteState
   , ClientToServer (..), ServerToClient (..), ChannelMsg (..)
-  , HasTopic (..), GenValue (..)
-  , generateValue
+  , isOkay, HasTopic (..), GenValue (..), HasServerS (..), DesValue (..)
+  , HasServerG (..)
+  , generateValue, gotServerGenValue, gotServerSerialize, gotServerDeSerialize
+  , deserializeValueServerOrigin, serializeValueServerOrigin, verify
   )
 
 import Prelude
@@ -22,6 +24,7 @@ import Control.Monad.Rec.Class (forever)
 import Control.Monad.Aff (Aff, runAff_, forkAff)
 import Control.Monad.Eff (Eff, kind Effect)
 import Control.Monad.Eff.Class (liftEff)
+import Control.Monad.Eff.Console (CONSOLE, log)
 import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef)
 import Control.Monad.Eff.Exception (EXCEPTION, throwException, throw)
 import Control.Monad.Eff.Random (RANDOM)
@@ -45,6 +48,7 @@ type Effects eff =
   , exception :: EXCEPTION
   , buffer :: BUFFER
   , random :: RANDOM
+  , console :: CONSOLE
   | eff)
 
 
@@ -74,7 +78,7 @@ startClient {controlHost,testSuite} = do
       Nothing -> liftEff $ throw "No receipt"
       Just {msg} -> case msg of
         TopicsAvailable ts
-          | ts == topics -> do
+          | Set.fromFoldable ts == topics -> do
             -- spark a listening async thread
             receiver <- forkAff (receiveClient suiteStateRef client)
             for_ ts \t -> do
@@ -98,7 +102,54 @@ receiveClient suiteStateRef client = forever $ do
   case mX of
     Nothing -> liftEff $ throw "No value?"
     Just {msg} -> case msg of
+      TopicsAvailable _ -> liftEff $ throw "Re-Sent topics available?"
       ServerToClientBadParse e -> liftEff $ throw $ "Bad parse: " <> e
-      ServerToClient _ -> pure unit
-      _ -> pure unit
-  pure unit
+      ServerToClient msg' -> case msg' of
+        Failure t x -> liftEff $ throw $ "Topic failed: " <> t <> ", " <> show x
+        -- order:
+        -- clientG
+        -- serverS
+        -- clientD
+        -- serverG
+        -- clientS
+        -- serverD
+        -- verify
+        Serialized t x -> do
+          mOk <- liftEff $ gotServerSerialize suiteStateRef t x
+          if isOkay mOk
+            then do
+              mOutgoing <- liftEff $ deserializeValueServerOrigin suiteStateRef t
+              case mOutgoing of
+                HasTopic (HasServerS (DesValue outgoing)) ->
+                  liftEff $ sendJson unit client outgoing
+                _ -> liftEff $ throw $ show mOutgoing
+            else liftEff $ throw $ show mOk
+        GeneratedInput t x -> do
+          mOk <- liftEff $ gotServerGenValue suiteStateRef t x
+          if isOkay mOk
+            then do
+              mOutgoing <- liftEff $ serializeValueServerOrigin suiteStateRef t
+              case mOutgoing of
+                HasTopic (HasServerG outgoing) ->
+                  liftEff $ sendJson unit client outgoing
+                _ -> liftEff $ throw $ show mOutgoing
+            else liftEff $ throw $ show mOk
+        DeSerialized t x -> do
+          mOk <- liftEff $ gotServerDeSerialize suiteStateRef t x
+          if isOkay mOk
+            then do
+              mOk' <- liftEff $ verify suiteStateRef t
+              if isOkay mOk'
+                then pure unit -- FIXME silent success?
+                else liftEff $ throw $ show mOk'
+            else liftEff $ throw $ show mOk
+      Continue t -> do
+        mX' <- liftEff $ generateValue suiteStateRef t
+        case mX' of
+          HasTopic mX'' -> case mX'' of
+            GenValue outgoing ->
+              liftEff $ sendJson unit client outgoing
+            DoneGenerating -> do
+              liftEff $ sendJson unit client (Finished t)
+              liftEff $ log $ "Topic finished: " <> t
+          _ -> liftEff $ throw $ "No topic for generating -- in continue: " <> t

@@ -10,6 +10,7 @@ import Data.Set (Set)
 import Data.Set as Set
 import Data.Map (Map)
 import Data.Map as Map
+import Data.Generic (class Generic, gShow)
 import Type.Proxy (Proxy (..))
 import Control.Alternative ((<|>))
 import Control.Monad.Reader (ReaderT, ask)
@@ -33,6 +34,8 @@ data ChannelMsg
   | DeSerialized TestTopic Json
   | Failure TestTopic Json
 
+derive instance genericChannelMsg :: Generic ChannelMsg
+
 instance encodeJsonChannelMsg :: EncodeJson ChannelMsg where
   encodeJson x = case x of
     GeneratedInput t y -> "topic" := t ~> "generated" := y ~> jsonEmptyObject
@@ -55,6 +58,8 @@ data ClientToServer
   | ClientToServer ChannelMsg
   | ClientToServerBadParse String
   | Finished TestTopic
+
+derive instance genericClientToServer :: Generic ClientToServer
 
 instance encodeJsonClientToServer :: EncodeJson ClientToServer where
   encodeJson x = case x of
@@ -80,14 +85,16 @@ instance decodeJsonClientToServer :: DecodeJson ClientToServer where
 
 
 data ServerToClient
-  = TopicsAvailable (Set TestTopic)
+  = TopicsAvailable (Array TestTopic)
   | ServerToClient ChannelMsg
   | ServerToClientBadParse String
   | Continue TestTopic
 
+derive instance genericServerToClient :: Generic ServerToClient
+
 instance encodeJsonServerToClient :: EncodeJson ServerToClient where
   encodeJson x = case x of
-    TopicsAvailable y -> "topics" := (Set.toUnfoldable y :: Array TestTopic) ~> jsonEmptyObject
+    TopicsAvailable y -> "topics" := y ~> jsonEmptyObject
     ServerToClient y -> "channelMsg" := y ~> jsonEmptyObject
     ServerToClientBadParse y -> "badParse" := y ~> jsonEmptyObject
     Continue y -> "continue" := y ~> jsonEmptyObject
@@ -97,7 +104,7 @@ instance decodeJsonServerToClient :: DecodeJson ServerToClient where
     o <- decodeJson json
     let msg = ServerToClient <$> o .? "channelMsg"
         bad = ServerToClientBadParse <$> o .? "badParse"
-        top = (TopicsAvailable <<< Set.fromFoldable :: Array TestTopic -> Set TestTopic) <$> o .? "topics"
+        top = TopicsAvailable <$> o .? "topics"
         con = Continue <$> o .? "continue"
     msg <|> bad <|> top <|> con
 
@@ -184,6 +191,11 @@ data HasTopic a
   = HasTopic a
   | NoTopic
 
+derive instance genericHasTopic :: Generic a => Generic (HasTopic a)
+
+instance showHasTopic :: Generic a => Show (HasTopic a) where
+  show = gShow
+
 instance isOkayHasTopic :: IsOkay a => IsOkay (HasTopic a) where
   isOkay x = case x of
     NoTopic -> false
@@ -192,6 +204,11 @@ instance isOkayHasTopic :: IsOkay a => IsOkay (HasTopic a) where
 data GenValue a
   = DoneGenerating
   | GenValue a
+
+derive instance genericGenValue :: Generic a => Generic (GenValue a)
+
+instance showGenValue :: Generic a => Show (GenValue a) where
+  show = gShow
 
 instance isOkayGenValue :: IsOkay a => IsOkay (GenValue a) where
   isOkay x = case x of
@@ -203,6 +220,11 @@ data GotClientGenValue a
   = NoClientGenValue
   | GotClientGenValue a
 
+derive instance genericGotClientGenValue :: Generic a => Generic (GotClientGenValue a)
+
+instance showGotClientGenValue :: Generic a => Show (GotClientGenValue a) where
+  show = gShow
+
 instance isOkayGotClientGenValue :: IsOkay a => IsOkay (GotClientGenValue a) where
   isOkay x = case x of
     NoClientGenValue -> false
@@ -212,6 +234,11 @@ instance isOkayGotClientGenValue :: IsOkay a => IsOkay (GotClientGenValue a) whe
 data HasClientG a
   = NoClientG
   | HasClientG a
+
+derive instance genericHasClientG :: Generic a => Generic (HasClientG a)
+
+instance showHasClientG :: Generic a => Show (HasClientG a) where
+  show = gShow
 
 instance isOkayHasClientG :: IsOkay a => IsOkay (HasClientG a) where
   isOkay x = case x of
@@ -223,6 +250,11 @@ data HasServerG a
   = NoServerG
   | HasServerG a
 
+derive instance genericHasServerG :: Generic a => Generic (HasServerG a)
+
+instance showHasServerG :: Generic a => Show (HasServerG a) where
+  show = gShow
+
 instance isOkayHasServerG :: IsOkay a => IsOkay (HasServerG a) where
   isOkay x = case x of
     NoServerG -> false
@@ -232,6 +264,11 @@ instance isOkayHasServerG :: IsOkay a => IsOkay (HasServerG a) where
 data HasServerS a
   = NoServerS
   | HasServerS a
+
+derive instance genericHasServerS :: Generic a => Generic (HasServerS a)
+
+instance showHasServerS :: Generic a => Show (HasServerS a) where
+  show = gShow
 
 instance isOkayHasServerS :: IsOkay a => IsOkay (HasServerS a) where
   isOkay x = case x of
@@ -243,6 +280,11 @@ data HasServerD a
   = NoServerD
   | HasServerD a
 
+derive instance genericHasServerD :: Generic a => Generic (HasServerD a)
+
+instance showHasServerD :: Generic a => Show (HasServerD a) where
+  show = gShow
+
 instance isOkayHasServerD :: IsOkay a => IsOkay (HasServerD a) where
   isOkay x = case x of
     NoServerD -> false
@@ -252,6 +294,11 @@ instance isOkayHasServerD :: IsOkay a => IsOkay (HasServerD a) where
 data HasClientD a
   = NoClientD
   | HasClientD a
+
+derive instance genericHasClientD :: Generic a => Generic (HasClientD a)
+
+instance showHasClientD :: Generic a => Show (HasClientD a) where
+  show = gShow
 
 instance isOkayHasClientD :: IsOkay a => IsOkay (HasClientD a) where
   isOkay x = case x of
@@ -263,6 +310,11 @@ data DesValue a
   = CantDes String
   | DesValue a
 
+derive instance genericDesValue :: Generic a => Generic (DesValue a)
+
+instance showDesValue :: Generic a => Show (DesValue a) where
+  show = gShow
+
 instance isOkayDesValue :: IsOkay a => IsOkay (DesValue a) where
   isOkay x = case x of
     CantDes _ -> false
@@ -272,6 +324,11 @@ instance isOkayDesValue :: IsOkay a => IsOkay (DesValue a) where
 data HasClientS a
   = NoClientS
   | HasClientS a
+
+derive instance genericHasClientS :: Generic a => Generic (HasClientS a)
+
+instance showHasClientS :: Generic a => Show (HasClientS a) where
+  show = gShow
 
 instance isOkayHasClientS :: IsOkay a => IsOkay (HasClientS a) where
   isOkay x = case x of
@@ -283,6 +340,11 @@ data ServerSerializedMatch a
   = ServerSerializedMatch a
   | ServerSerializedMismatch
 
+derive instance genericServerSerializedMatch :: Generic a => Generic (ServerSerializedMatch a)
+
+instance showServerSerializedMatch :: Generic a => Show (ServerSerializedMatch a) where
+  show = gShow
+
 instance isOkayServerSerializedMatch :: IsOkay a => IsOkay (ServerSerializedMatch a) where
   isOkay x = case x of
     ServerSerializedMismatch -> false
@@ -292,6 +354,11 @@ instance isOkayServerSerializedMatch :: IsOkay a => IsOkay (ServerSerializedMatc
 data ServerDeSerializedMatch a
   = ServerDeSerializedMatch a
   | ServerDeSerializedMismatch
+
+derive instance genericServerDeSerializedMatch :: Generic a => Generic (ServerDeSerializedMatch a)
+
+instance showServerDeSerializedMatch :: Generic a => Show (ServerDeSerializedMatch a) where
+  show = gShow
 
 instance isOkayServerDeSerializedMatch :: IsOkay a => IsOkay (ServerDeSerializedMatch a) where
   isOkay x = case x of
@@ -303,6 +370,11 @@ data ClientSerializedMatch a
   = ClientSerializedMatch a
   | ClientSerializedMismatch
 
+derive instance genericClientSerializedMatch :: Generic a => Generic (ClientSerializedMatch a)
+
+instance showClientSerializedMatch :: Generic a => Show (ClientSerializedMatch a) where
+  show = gShow
+
 instance isOkayClientSerializedMatch :: IsOkay a => IsOkay (ClientSerializedMatch a) where
   isOkay x = case x of
     ClientSerializedMismatch -> false
@@ -312,6 +384,11 @@ instance isOkayClientSerializedMatch :: IsOkay a => IsOkay (ClientSerializedMatc
 data ClientDeSerializedMatch a
   = ClientDeSerializedMatch a
   | ClientDeSerializedMismatch
+
+derive instance genericClientDeSerializedMatch :: Generic a => Generic (ClientDeSerializedMatch a)
+
+instance showClientDeSerializedMatch :: Generic a => Show (ClientDeSerializedMatch a) where
+  show = gShow
 
 instance isOkayClientDeSerializedMatch :: IsOkay a => IsOkay (ClientDeSerializedMatch a) where
   isOkay x = case x of
@@ -428,34 +505,34 @@ deserializeValueServerOrigin xsRef topic = do
     HasTopic ex ->
       let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
              => TestTopicState a -> Eff (ref :: REF | eff) (HasServerS (DesValue ChannelMsg))
-          go (TestTopicState {deserialize,serverS,serverD,serialize}) = do
+          go (TestTopicState {deserialize,serverS,clientD,serialize}) = do
             mX <- readRef serverS
             case mX of
               Nothing -> pure NoServerS
               Just x -> map HasServerS $ case deserialize x of
                 Left e -> pure (CantDes e)
                 Right y -> do
-                  writeRef serverD (Just y)
+                  writeRef clientD (Just y)
                   pure $ DesValue $ DeSerialized topic $ serialize y
       in  HasTopic <$> runExists go ex
 
 
-gotClientDeSerialize :: forall eff
+gotServerDeSerialize :: forall eff
                       . TestSuiteState
                      -> TestTopic
                      -> Json
                      -> Eff (ref :: REF | eff) (HasTopic (DesValue Unit))
-gotClientDeSerialize xsRef topic value = do
+gotServerDeSerialize xsRef topic value = do
   mState <- getTopicState xsRef topic
   case mState of
     NoTopic -> pure NoTopic
     HasTopic ex ->
       let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
              => TestTopicState a -> Eff (ref :: REF | eff) (DesValue Unit)
-          go (TestTopicState {deserialize,clientD}) = case deserialize value of
+          go (TestTopicState {deserialize,serverD}) = case deserialize value of
             Left e -> pure (CantDes e)
             Right y -> do
-              writeRef clientD (Just y)
+              writeRef serverD (Just y)
               pure (DesValue unit)
       in  HasTopic <$> runExists go ex
 
