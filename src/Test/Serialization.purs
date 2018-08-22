@@ -19,6 +19,7 @@ import Data.Map as Map
 import Data.Set as Set
 import Data.Argonaut (encodeJson)
 import Data.Foldable (for_)
+import Data.UUID (GENUUID, genUUID)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.Rec.Class (forever)
 import Control.Monad.Aff (Aff, runAff_, forkAff)
@@ -28,8 +29,10 @@ import Control.Monad.Eff.Console (CONSOLE, log)
 import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef)
 import Control.Monad.Eff.Exception (EXCEPTION, throwException, throw)
 import Control.Monad.Eff.Random (RANDOM)
+import Node.Buffer (fromString) as Buffer
+import Node.Encoding (Encoding (UTF8)) as Buffer
 import ZeroMQ
-  ( ZEROMQ, socket, router, dealer, connect, sendJson, readJson
+  ( ZEROMQ, socket, router, dealer, connect, sendJson, readJson, setOption, zmqIdentity
   , Socket, Router, Dealer, Connected)
 import Node.Buffer (BUFFER)
 
@@ -49,6 +52,7 @@ type Effects eff =
   , buffer :: BUFFER
   , random :: RANDOM
   , console :: CONSOLE
+  , uuid :: GENUUID
   | eff)
 
 
@@ -61,6 +65,8 @@ startClient {controlHost,testSuite} = do
     URI
       (Just (Scheme "tcp"))
       (HierarchicalPart (Just controlHost) Nothing) Nothing Nothing
+  ident <- (\x -> Buffer.fromString (show x) Buffer.UTF8) =<< genUUID
+  setOption client zmqIdentity ident
 
   suiteStateRef <- emptyTestSuiteState
   topics <- do
@@ -84,9 +90,12 @@ startClient {controlHost,testSuite} = do
             for_ ts \t -> do
               mX' <- liftEff $ generateValue suiteStateRef t
               case mX' of
-                HasTopic (GenValue outgoing) ->
-                  liftEff $ sendJson unit client outgoing
-                _ -> liftEff $ throw $ "Can't generate initial value? " <> show t
+                HasTopic mX'' -> case mX'' of
+                  GenValue outgoing ->
+                    liftEff $ sendJson unit client outgoing
+                  DoneGenerating -> liftEff $ throw "Done generating on init?"
+                _ -> liftEff $ throw $ "Can't generate initial value? "
+                       <> show t -- <> ", " <> show mX'
             pure unit
           | otherwise -> liftEff $ throw $ "Mismatched topics: "
                       <> show ts <> ", on client: " <> show topics

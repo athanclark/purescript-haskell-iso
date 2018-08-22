@@ -14,6 +14,7 @@ import Data.Enum (enumFromTo)
 import Data.Generic (class Generic, gShow, gEq, gCompare)
 import Data.NonEmpty (NonEmpty (..))
 import Data.String.Yarn as String
+import Data.Exists (Exists, mkExists, runExists)
 import Type.Proxy (Proxy (..))
 import Control.Alternative ((<|>))
 import Control.Monad.Reader (ReaderT, ask)
@@ -62,6 +63,9 @@ data ChannelMsg
 
 derive instance genericChannelMsg :: Generic ChannelMsg
 
+instance eqChannelMsg :: Eq ChannelMsg where
+  eq = gEq
+
 instance arbitraryChannelMsg :: Arbitrary ChannelMsg where
   arbitrary = oneOf $ NonEmpty
     (GeneratedInput <$> arbitrary <*> arbitraryJson)
@@ -100,6 +104,9 @@ data ClientToServer
   | Finished TestTopic
 
 derive instance genericClientToServer :: Generic ClientToServer
+
+instance eqClientToServer :: Eq ClientToServer where
+  eq = gEq
 
 instance arbitraryClientToServer :: Arbitrary ClientToServer where
   arbitrary = oneOf $ NonEmpty
@@ -143,6 +150,9 @@ data ServerToClient
 
 derive instance genericServerToClient :: Generic ServerToClient
 
+instance eqServerToClient :: Eq ServerToClient where
+  eq = gEq
+
 instance arbitraryServerToClient :: Arbitrary ServerToClient where
   arbitrary = oneOf $ NonEmpty
     (TopicsAvailable <$> arbitrary)
@@ -176,6 +186,7 @@ newtype TestTopicState a = TestTopicState
   { generate :: Gen a
   , serialize :: a -> Json
   , deserialize :: Json -> Either String a
+  , eq :: a -> a -> Boolean
   , size :: Ref Int
   , serverG :: Ref (Maybe a)
   , clientS :: Ref (Maybe Json)
@@ -204,6 +215,7 @@ emptyTestTopicState Proxy = do
     { generate: arbitrary
     , serialize: encodeJson
     , deserialize: decodeJson
+    , eq: eq
     , size
     , serverG
     , clientS
@@ -214,13 +226,22 @@ emptyTestTopicState Proxy = do
     }
 
 
-foreign import data Exists :: (Type -> Type) -> Type
+-- foreign import data Exists :: (Type -> Type) -> Type
 
-mkExists :: forall f a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a => f a -> Exists f
-mkExists = unsafeCoerce
+-- mkExists :: forall f a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a => f a -> Exists f
+-- mkExists x = unsafeCoerce x
 
-runExists :: forall f r. (forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a => f a -> r) -> Exists f -> r
-runExists = unsafeCoerce
+-- runExists :: forall f r. (forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a => f a -> r) -> Exists f -> r
+-- runExists f = unsafeCoerce f -- unsafeCoerce f x
+
+-- newtype Exists f = Exists
+--   (forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a => f a)
+
+-- mkExists :: forall f a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a => f a -> Exists f
+-- mkExists = unsafeCoerce -- Exists
+
+-- runExists :: forall f r. (forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a => f a -> r) -> Exists f -> r
+-- runExists = unsafeCoerce -- f (Exists x) = f x
 
 
 type TestSuiteState = Ref (Map TestTopic (Exists TestTopicState))
@@ -262,6 +283,7 @@ instance isOkayHasTopic :: IsOkay a => IsOkay (HasTopic a) where
   isOkay x = case x of
     NoTopic -> false
     HasTopic y -> isOkay y
+
 
 data GenValue a
   = DoneGenerating
@@ -482,8 +504,8 @@ generateValue xsRef topic = do
   case mState of
     NoTopic -> pure NoTopic
     HasTopic ex ->
-      let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
-             => TestTopicState a -> Eff (ref :: REF, random :: RANDOM | eff) (GenValue ChannelMsg)
+      let go :: forall a -- . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+              . TestTopicState a -> Eff (ref :: REF, random :: RANDOM | eff) (GenValue ChannelMsg)
           go (TestTopicState {size,generate,serialize,clientG}) = do
             s <- readRef size
             if s >= 100
@@ -507,8 +529,8 @@ gotServerGenValue xsRef topic value = do
   case mState of
     NoTopic -> pure NoTopic
     HasTopic ex ->
-      let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
-             => TestTopicState a -> Eff (ref :: REF | eff) (DesValue Unit)
+      let go :: forall a -- . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+              . TestTopicState a -> Eff (ref :: REF | eff) (DesValue Unit)
           go (TestTopicState {deserialize,serverG}) = case deserialize value of
             Left e -> pure (CantDes e)
             Right y -> do
@@ -526,8 +548,8 @@ serializeValueServerOrigin xsRef topic = do
   case mState of
     NoTopic -> pure NoTopic
     HasTopic ex ->
-      let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
-             => TestTopicState a -> Eff (ref :: REF | eff) (HasServerG ChannelMsg)
+      let go :: forall a -- . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+              . TestTopicState a -> Eff (ref :: REF | eff) (HasServerG ChannelMsg)
           go (TestTopicState {serialize,serverG,clientS}) = do
             mX <- readRef serverG
             case mX of
@@ -549,8 +571,8 @@ gotServerSerialize xsRef topic value = do
   case mState of
     NoTopic -> pure NoTopic
     HasTopic ex ->
-      let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
-             => TestTopicState a -> Eff (ref :: REF | eff) Unit
+      let go :: forall a -- . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+              . TestTopicState a -> Eff (ref :: REF | eff) Unit
           go (TestTopicState {deserialize,serverS}) = do
             writeRef serverS (Just value)
       in  HasTopic <$> runExists go ex
@@ -565,8 +587,8 @@ deserializeValueServerOrigin xsRef topic = do
   case mState of
     NoTopic -> pure NoTopic
     HasTopic ex ->
-      let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
-             => TestTopicState a -> Eff (ref :: REF | eff) (HasServerS (DesValue ChannelMsg))
+      let go :: forall a -- . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+              . TestTopicState a -> Eff (ref :: REF | eff) (HasServerS (DesValue ChannelMsg))
           go (TestTopicState {deserialize,serverS,clientD,serialize}) = do
             mX <- readRef serverS
             case mX of
@@ -589,8 +611,8 @@ gotServerDeSerialize xsRef topic value = do
   case mState of
     NoTopic -> pure NoTopic
     HasTopic ex ->
-      let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
-             => TestTopicState a -> Eff (ref :: REF | eff) (DesValue Unit)
+      let go :: forall a -- . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+              . TestTopicState a -> Eff (ref :: REF | eff) (DesValue Unit)
           go (TestTopicState {deserialize,serverD}) = case deserialize value of
             Left e -> pure (CantDes e)
             Right y -> do
@@ -621,9 +643,9 @@ verify xsRef topic = do
   case mState of
     NoTopic -> pure NoTopic
     HasTopic ex ->
-      let go :: forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a
-             => TestTopicState a -> Eff (ref :: REF | eff) _
-          go (TestTopicState {serialize,deserialize,clientG,serverS,clientD,serverG,clientS,serverD}) = do
+      let go :: forall a -- . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+              . TestTopicState a -> Eff (ref :: REF | eff) _
+          go (TestTopicState {serialize,deserialize,eq,clientG,serverS,clientD,serverG,clientS,serverD}) = do
             mClientG <- readRef clientG
             case mClientG of
               Nothing -> pure NoClientG
@@ -642,7 +664,7 @@ verify xsRef topic = do
                             case deserialize serverS' of
                               Left e -> pure (CantDes e)
                               Right clientD''
-                                | clientD'' /= clientD' -> pure (DesValue ClientDeSerializedMismatch)
+                                | not (eq clientD'' clientD') -> pure (DesValue ClientDeSerializedMismatch)
                                 | otherwise -> map (DesValue <<< ClientDeSerializedMatch) $ do
                                     mServerG <- readRef serverG
                                     case mServerG of
@@ -662,6 +684,6 @@ verify xsRef topic = do
                                                     case deserialize clientS' of
                                                       Left e -> pure (CantDes e)
                                                       Right serverS''
-                                                        | serverS'' /= serverD' -> pure (DesValue ServerDeSerializedMismatch)
+                                                        | not (eq serverS'' serverD') -> pure (DesValue ServerDeSerializedMismatch)
                                                         | otherwise -> pure $ DesValue $ ServerDeSerializedMatch $ unit
       in  HasTopic <$> runExists go ex

@@ -13,14 +13,15 @@
     "purescript-string-parsers": "^3.1.0",
     "purescript-js-date": "^4.0.0",
     "purescript-zeromq": "^0.0.3",
+    "purescript-uuid": "^4.0.0",
     "purescript-uri": "git@git.localcooking.com:private-tooling/purescript-uri.git#3dcc15191b506cbbcde5625e112012eaf03a3545",
-    "purescript-argonaut": "git@git.localcooking.com:private-tooling/purescript-argonaut.git#1a01d544998f349ee334809ba16641a2af7f8272"
+    "purescript-argonaut": "git@git.localcooking.com:private-tooling/purescript-argonaut.git#d96fbd641e3cc4d0b299640eb128f1d7d0e475c9"
   },
   "devDependencies": {
     "purescript-psci-support": "^3.0.0"
   },
   "resolutions": {
-    "purescript-argonaut": "1a01d544998f349ee334809ba16641a2af7f8272",
-    "purescript-argonaut-core": "7c767cceb2fa87d088993627d3e98bb6fb1c50c7"
+    "purescript-argonaut": "d96fbd641e3cc4d0b299640eb128f1d7d0e475c9",
+    "purescript-argonaut-core": "c2f43c83e1bd817933d31f6e8152ccab86062b27"
   }
 }

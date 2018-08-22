@@ -1,0 +1,22 @@
+{
+  "name": "purescript-haskell-iso",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@git.localcooking.com:tooling/purescript-haskell-iso.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "uuid": "^3.3.2",
+    "zeromq": "^4.6.0"
+  }
+}
