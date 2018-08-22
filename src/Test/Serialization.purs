@@ -86,7 +86,7 @@ startClient {controlHost,testSuite} = do
               case mX' of
                 HasTopic (GenValue outgoing) ->
                   liftEff $ sendJson unit client outgoing
-                _ -> liftEff $ throw $ "Can't generate initial value? " <> t
+                _ -> liftEff $ throw $ "Can't generate initial value? " <> show t
             pure unit
           | otherwise -> liftEff $ throw $ "Mismatched topics: "
                       <> show ts <> ", on client: " <> show topics
@@ -105,7 +105,7 @@ receiveClient suiteStateRef client = forever $ do
       TopicsAvailable _ -> liftEff $ throw "Re-Sent topics available?"
       ServerToClientBadParse e -> liftEff $ throw $ "Bad parse: " <> e
       ServerToClient msg' -> case msg' of
-        Failure t x -> liftEff $ throw $ "Topic failed: " <> t <> ", " <> show x
+        Failure t x -> liftEff $ throw $ "Topic failed: " <> show t <> ", " <> show x
         -- order:
         -- clientG
         -- serverS
@@ -151,5 +151,5 @@ receiveClient suiteStateRef client = forever $ do
               liftEff $ sendJson unit client outgoing
             DoneGenerating -> do
               liftEff $ sendJson unit client (Finished t)
-              liftEff $ log $ "Topic finished: " <> t
-          _ -> liftEff $ throw $ "No topic for generating -- in continue: " <> t
+              liftEff $ log $ "Topic finished: " <> show t
+          _ -> liftEff $ throw $ "No topic for generating -- in continue: " <> show t

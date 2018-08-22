@@ -10,7 +10,10 @@ import Data.Set (Set)
 import Data.Set as Set
 import Data.Map (Map)
 import Data.Map as Map
-import Data.Generic (class Generic, gShow)
+import Data.Enum (enumFromTo)
+import Data.Generic (class Generic, gShow, gEq, gCompare)
+import Data.NonEmpty (NonEmpty (..))
+import Data.String.Yarn as String
 import Type.Proxy (Proxy (..))
 import Control.Alternative ((<|>))
 import Control.Monad.Reader (ReaderT, ask)
@@ -20,12 +23,35 @@ import Control.Monad.Eff.Class (liftEff)
 import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef, modifyRef)
 import Control.Monad.Eff.Random (RANDOM)
 import Test.QuickCheck (class Arbitrary, arbitrary)
-import Test.QuickCheck.Gen (Gen, unGen)
+import Test.QuickCheck.Gen (Gen, unGen, oneOf, arrayOf1, elements)
 import Test.QuickCheck.LCG (randomSeed)
 import Unsafe.Coerce (unsafeCoerce)
 
 
-type TestTopic = String
+newtype TestTopic = TestTopic String
+
+derive instance genericTestTopic :: Generic TestTopic
+
+instance eqTestTopic :: Eq TestTopic where
+  eq = gEq
+
+instance ordTestTopic :: Ord TestTopic where
+  compare = gCompare
+
+instance showTestTopic :: Show TestTopic where
+  show = gShow
+
+instance arbitraryTestTopic :: Arbitrary TestTopic where
+  arbitrary = TestTopic <$> arbitraryNonEmptyText
+    where
+      arbitraryNonEmptyText = String.fromChars
+                           <$> arrayOf1 (elements $ NonEmpty 'a' $ enumFromTo 'b' 'z')
+
+instance encodeJsonTestTopic :: EncodeJson TestTopic where
+  encodeJson (TestTopic x) = encodeJson x
+
+instance decodeJsonTestTopic :: DecodeJson TestTopic where
+  decodeJson json = TestTopic <$> decodeJson json
 
 
 data ChannelMsg
@@ -35,6 +61,20 @@ data ChannelMsg
   | Failure TestTopic Json
 
 derive instance genericChannelMsg :: Generic ChannelMsg
+
+instance arbitraryChannelMsg :: Arbitrary ChannelMsg where
+  arbitrary = oneOf $ NonEmpty
+    (GeneratedInput <$> arbitrary <*> arbitraryJson)
+    [ Serialized <$> arbitrary <*> arbitraryJson
+    , DeSerialized <$> arbitrary <*> arbitraryJson
+    , Failure <$> arbitrary <*> arbitraryJson
+    ]
+    where
+      arbitraryNonEmptyText = String.fromChars
+                           <$> arrayOf1 (elements $ NonEmpty 'a' $ enumFromTo 'b' 'z')
+      arbitraryJson = oneOf $ NonEmpty
+        (encodeJson <$> arbitraryNonEmptyText)
+        []
 
 instance encodeJsonChannelMsg :: EncodeJson ChannelMsg where
   encodeJson x = case x of
@@ -60,6 +100,17 @@ data ClientToServer
   | Finished TestTopic
 
 derive instance genericClientToServer :: Generic ClientToServer
+
+instance arbitraryClientToServer :: Arbitrary ClientToServer where
+  arbitrary = oneOf $ NonEmpty
+    (pure GetTopics)
+    [ ClientToServer <$> arbitrary
+    , ClientToServerBadParse <$> arbitraryNonEmptyText
+    , Finished <$> arbitrary
+    ]
+    where
+      arbitraryNonEmptyText = String.fromChars
+                           <$> arrayOf1 (elements $ NonEmpty 'a' $ enumFromTo 'b' 'z')
 
 instance encodeJsonClientToServer :: EncodeJson ClientToServer where
   encodeJson x = case x of
@@ -91,6 +142,17 @@ data ServerToClient
   | Continue TestTopic
 
 derive instance genericServerToClient :: Generic ServerToClient
+
+instance arbitraryServerToClient :: Arbitrary ServerToClient where
+  arbitrary = oneOf $ NonEmpty
+    (TopicsAvailable <$> arbitrary)
+    [ ServerToClient <$> arbitrary
+    , ServerToClientBadParse <$> arbitraryNonEmptyText
+    , Continue <$> arbitrary
+    ]
+    where
+      arbitraryNonEmptyText = String.fromChars
+                           <$> arrayOf1 (elements $ NonEmpty 'a' $ enumFromTo 'b' 'z')
 
 instance encodeJsonServerToClient :: EncodeJson ServerToClient where
   encodeJson x = case x of
