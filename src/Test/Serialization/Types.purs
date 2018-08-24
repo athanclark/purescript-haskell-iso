@@ -143,7 +143,7 @@ instance decodeJsonClientToServer :: DecodeJson ClientToServer where
 
 
 data ServerToClient
-  = TopicsAvailable (Array TestTopic)
+  = TopicsAvailable (Set TestTopic)
   | ServerToClient ChannelMsg
   | ServerToClientBadParse String
   | Continue TestTopic
@@ -155,7 +155,7 @@ instance eqServerToClient :: Eq ServerToClient where
 
 instance arbitraryServerToClient :: Arbitrary ServerToClient where
   arbitrary = oneOf $ NonEmpty
-    (TopicsAvailable <$> arbitrary)
+    (TopicsAvailable <<< (Set.fromFoldable :: Array _ -> _) <$> arbitrary)
     [ ServerToClient <$> arbitrary
     , ServerToClientBadParse <$> arbitraryNonEmptyText
     , Continue <$> arbitrary
@@ -166,7 +166,7 @@ instance arbitraryServerToClient :: Arbitrary ServerToClient where
 
 instance encodeJsonServerToClient :: EncodeJson ServerToClient where
   encodeJson x = case x of
-    TopicsAvailable y -> "topics" := y ~> jsonEmptyObject
+    TopicsAvailable y -> "topics" := (Set.toUnfoldable y :: Array _) ~> jsonEmptyObject
     ServerToClient y -> "channelMsg" := y ~> jsonEmptyObject
     ServerToClientBadParse y -> "badParse" := y ~> jsonEmptyObject
     Continue y -> "continue" := y ~> jsonEmptyObject
@@ -176,7 +176,7 @@ instance decodeJsonServerToClient :: DecodeJson ServerToClient where
     o <- decodeJson json
     let msg = ServerToClient <$> o .? "channelMsg"
         bad = ServerToClientBadParse <$> o .? "badParse"
-        top = TopicsAvailable <$> o .? "topics"
+        top = TopicsAvailable <<< (Set.fromFoldable :: Array _ -> _) <$> o .? "topics"
         con = Continue <$> o .? "continue"
     msg <|> bad <|> top <|> con
 
@@ -224,24 +224,6 @@ emptyTestTopicState Proxy = do
     , serverS
     , clientD
     }
-
-
--- foreign import data Exists :: (Type -> Type) -> Type
-
--- mkExists :: forall f a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a => f a -> Exists f
--- mkExists x = unsafeCoerce x
-
--- runExists :: forall f r. (forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a => f a -> r) -> Exists f -> r
--- runExists f = unsafeCoerce f -- unsafeCoerce f x
-
--- newtype Exists f = Exists
---   (forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a => f a)
-
--- mkExists :: forall f a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a => f a -> Exists f
--- mkExists = unsafeCoerce -- Exists
-
--- runExists :: forall f r. (forall a. Arbitrary a => EncodeJson a => DecodeJson a => Eq a => f a -> r) -> Exists f -> r
--- runExists = unsafeCoerce -- f (Exists x) = f x
 
 
 type TestSuiteState = Ref (Map TestTopic (Exists TestTopicState))
