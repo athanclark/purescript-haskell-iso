@@ -4,6 +4,11 @@ import Test.Serialization (startClient)
 import Test.Serialization.Types
   ( TestSuiteM, TestTopic (..), ChannelMsg, ClientToServer, ServerToClient
   , registerTopic)
+import Data.Argonaut.JSONUnit (JSONUnit)
+import Data.Argonaut.JSONEither (JSONEither)
+import Data.Argonaut.JSONTuple (JSONTuple)
+import Data.Argonaut.JSONDate (JSONDate)
+import Data.Argonaut.JSONDateTime (JSONDateTime)
 
 import Prelude
 import Data.Maybe (Maybe (..))
@@ -33,3 +38,8 @@ tests = do
   registerTopic (TestTopic "ChannelMsg") (Proxy :: Proxy ChannelMsg)
   registerTopic (TestTopic "ClientToServer") (Proxy :: Proxy ClientToServer)
   registerTopic (TestTopic "ServerToClient") (Proxy :: Proxy ServerToClient)
+  registerTopic (TestTopic "JSONUnit") (Proxy :: Proxy JSONUnit)
+  registerTopic (TestTopic "JSONEither") (Proxy :: Proxy (JSONEither JSONUnit JSONUnit))
+  registerTopic (TestTopic "JSONTuple") (Proxy :: Proxy (JSONTuple JSONUnit JSONUnit))
+  registerTopic (TestTopic "JSONDate") (Proxy :: Proxy JSONDate)
+  -- registerTopic (TestTopic "JSONDateTime") (Proxy :: Proxy JSONDateTime)
