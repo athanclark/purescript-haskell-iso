@@ -15,7 +15,7 @@
     "purescript-zeromq": "^0.0.3",
     "purescript-uuid": "^4.0.0",
     "purescript-sets": "git@git.localcooking.com:private-tooling/purescript-sets.git#3b5eee2df36d7bebc5816210b684bc35c1f94434",
-    "purescript-uri": "git@git.localcooking.com:private-tooling/purescript-uri.git#3dcc15191b506cbbcde5625e112012eaf03a3545",
+    "purescript-uri": "git@git.localcooking.com:private-tooling/purescript-uri.git#0647b672c505514581399e5c47aa7ef2b7b73404",
     "purescript-argonaut": "git@git.localcooking.com:private-tooling/purescript-argonaut.git#d96fbd641e3cc4d0b299640eb128f1d7d0e475c9"
   },
   "devDependencies": {
