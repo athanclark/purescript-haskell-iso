@@ -42,4 +42,4 @@ tests = do
   registerTopic (TestTopic "JSONEither") (Proxy :: Proxy (JSONEither JSONUnit JSONUnit))
   registerTopic (TestTopic "JSONTuple") (Proxy :: Proxy (JSONTuple JSONUnit JSONUnit))
   registerTopic (TestTopic "JSONDate") (Proxy :: Proxy JSONDate)
-  -- registerTopic (TestTopic "JSONDateTime") (Proxy :: Proxy JSONDateTime)
+  registerTopic (TestTopic "JSONDateTime") (Proxy :: Proxy JSONDateTime)
