@@ -2,9 +2,9 @@ module Test.Serialization where
 
 import Test.Serialization.Types
   ( TestSuiteM, TestSuiteState, emptyTestSuiteState, TestTopic, TestTopicState (..)
-  , ClientToServer (..), ServerToClient (..), ChannelMsg (..)
+  , ClientToServer (..), ServerToClient (..), MsgType (..)
   , isOkay, HasTopic (..), GenValue (..), HasServerS (..), DesValue (..)
-  , HasServerG (..)
+  , HasServerG (..), getTopicState
   , generateValue, gotServerGenValue, gotServerSerialize, gotServerDeSerialize
   , deserializeValueServerOrigin, serializeValueServerOrigin, verify
   , getTopicState
@@ -18,10 +18,11 @@ import Data.URI.URI as URI
 import Data.Map as Map
 import Data.Set (Set)
 import Data.Set as Set
-import Data.Argonaut (encodeJson)
+import Data.Argonaut (class EncodeJson, encodeJson, decodeJson, jsonParser)
 import Data.Foldable (for_)
 import Data.UUID (GENUUID, genUUID)
 import Data.Exists (runExists)
+import Data.NonEmpty (NonEmpty (..))
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.Rec.Class (forever)
 import Control.Monad.Aff (Aff, runAff_, forkAff, Fiber, killFiber)
@@ -34,9 +35,11 @@ import Control.Monad.Eff.Random (RANDOM)
 import Node.Buffer (fromString) as Buffer
 import Node.Encoding (Encoding (UTF8)) as Buffer
 import ZeroMQ
-  ( ZEROMQ, socket, router, dealer, connect, sendJson, readJson, setOption, zmqIdentity
+  ( ZEROMQ, socket, router, dealer, connect, sendMany, sendJson, readMany, readJson', setOption, zmqIdentity
   , close, Socket, Router, Dealer, Connected)
-import Node.Buffer (BUFFER)
+import Node.Buffer (BUFFER, Buffer)
+import Node.Buffer as Buffer
+import Node.Encoding as Buffer
 
 
 
@@ -82,29 +85,32 @@ startClient {controlHost,testSuite} = do
         Right _ -> pure unit
 
   runAff_ resolve $ do
-    liftEff $ send client GetTopics
-    mX <- readJson client
+    _ <- liftEff $ send client GetTopics
+    mX <- readJson' client
     case mX of
       Nothing -> liftEff $ throw "No receipt"
-      Just {msg} -> case msg of
-        TopicsAvailable ts
-          | ts == topics -> do
-            -- spark a listening async thread
-            receiver <- forkAff (receiveClient suiteStateRef client topicsPendingRef)
-            -- initiate tests
-            for_ ts \t -> do
-              mX' <- liftEff $ generateValue suiteStateRef t
-              case mX' of
-                HasTopic mX'' -> case mX'' of
-                  GenValue outgoing ->
-                    liftEff $ send client $ ClientToServer outgoing
-                  DoneGenerating -> liftEff $ throw "Done generating on init?"
-                _ -> liftEff $ throw $ "Can't generate initial value? "
-                       <> show t -- <> ", " <> show mX'
-            pure unit
-          | otherwise -> liftEff $ throw $ "Mismatched topics: "
-                      <> show ts <> ", on client: " <> show topics
-        _ -> liftEff $ throw $ "Incorrect timing?: " <> show (encodeJson msg)
+      Just eX -> case eX of
+        Left e -> liftEff $ throw $ "JSON parse failure on init receipt: " <> e
+        Right {msg} -> case msg of
+          TopicsAvailable ts
+            | ts == topics -> do
+              -- spark a listening async thread
+              receiver <- forkAff (receiveClient suiteStateRef client topicsPendingRef)
+              -- initiate tests
+              for_ ts \t -> do
+                mState <- liftEff $ getTopicState suiteStateRef t
+                case mState of
+                  NoTopic -> liftEff $ throw "No topic"
+                  HasTopic state -> do
+                    mX' <- liftEff $ generateValue state t
+                    case mX' of
+                      GenValue outgoing ->
+                        liftEff $ send client outgoing
+                      DoneGenerating -> liftEff $ throw "Done generating on init?"
+              pure unit
+            | otherwise -> liftEff $ throw $ "Mismatched topics: "
+                        <> show ts <> ", on client: " <> show topics
+          _ -> liftEff $ throw $ "Incorrect timing?: " <> show (encodeJson msg)
 
 
 receiveClient :: forall eff
@@ -113,85 +119,116 @@ receiveClient :: forall eff
               -> Ref (Set TestTopic)
               -> Aff (Effects eff) Unit
 receiveClient suiteStateRef client topicsPendingRef = forever $ do
-  mX <- readJson client
+  mX <- readMany client
   case mX of
     Nothing -> pure unit -- liftEff $ throw "No value?"
-    Just {msg} -> case msg of
-      TopicsAvailable _ -> liftEff $ throw "Re-Sent topics available?"
-      ServerToClientBadParse e -> liftEff $ throw $ "Bad parse: " <> e
-      ServerToClient msg' -> case msg' of
-        Failure t x -> liftEff $ throw $ "Topic failed: " <> show t <> ", " <> show x
-        -- order:
-        -- clientG
-        -- serverS
-        -- clientD
-        -- serverG
-        -- clientS
-        -- serverD
-        -- verify
-        Serialized t x -> do
-          mOk <- liftEff $ gotServerSerialize suiteStateRef t x
-          if isOkay mOk
-            then do
-              mOutgoing <- liftEff $ deserializeValueServerOrigin suiteStateRef t
-              case mOutgoing of
-                HasTopic (HasServerS (DesValue outgoing)) ->
-                  liftEff $ send client (ClientToServer outgoing)
-                _ -> liftEff $ do
-                  dumpTopic suiteStateRef t
-                  throw $ "Bad deserialize value: " <> show t <> ", " <> show mOutgoing
-            else liftEff $ do
-              dumpTopic suiteStateRef t
-              throw $ "Bad got serialize: " <> show t <> ", " <> show mOk
-        GeneratedInput t x -> do
-          mOk <- liftEff $ gotServerGenValue suiteStateRef t x
-          if isOkay mOk
-            then do
-              mOutgoing <- liftEff $ serializeValueServerOrigin suiteStateRef t
-              case mOutgoing of
-                HasTopic (HasServerG outgoing) ->
-                  liftEff $ send client (ClientToServer outgoing)
-                _ -> liftEff $ do
-                  dumpTopic suiteStateRef t
-                  throw $ "Bad serialize value: " <> show t <> ", " <> show mOutgoing
-            else liftEff $ do
-              dumpTopic suiteStateRef t
-              throw $ "Bad got gen: " <> show t <> ", " <> show mOk
-        DeSerialized t x -> do
-          mOk <- liftEff $ gotServerDeSerialize suiteStateRef t x
-          if isOkay mOk
-            then do
-              mOk' <- liftEff $ verify suiteStateRef t
-              if isOkay mOk'
-                then pure unit -- FIXME silent success?
-                else liftEff $ do
-                  dumpTopic suiteStateRef t
-                  throw $ "Bad verify: " <> show t <> ", " <> show mOk'
-            else liftEff $ do
-              dumpTopic suiteStateRef t
-              throw $ "Bad got deserialize: " <> show t <> ", " <> show mOk
-      Continue t -> do
-        mX' <- liftEff $ generateValue suiteStateRef t
-        case mX' of
-          HasTopic mX'' -> case mX'' of
-            GenValue outgoing ->
-              liftEff $ send client (ClientToServer outgoing)
-            DoneGenerating -> do
-              liftEff $ send client (Finished t)
-              liftEff $ log $ "Topic finished: " <> show t
-              liftEff $ modifyRef topicsPendingRef (Set.delete t)
-              ts <- liftEff $ readRef topicsPendingRef
-              when (ts == Set.empty) $ do
-                liftEff $ log "Tests finished."
-                liftEff $ close client
-          _ -> liftEff $ throw $ "No topic for generating -- in continue: " <> show t
+    Just {msg: NonEmpty incoming _} -> do
+      s <- liftEff $ Buffer.toString Buffer.UTF8 incoming
+      case decodeJson =<< jsonParser s of
+        Left e -> liftEff $ do
+          ts <- readRef topicsPendingRef
+          for_ ts \t -> dumpTopic suiteStateRef t
+          _ <- send client $ ClientToServerBadParse e
+          throw $ "Bad parse: " <> e
+        Right msg -> case msg of
+          TopicsAvailable _ -> liftEff $ throw "Re-Sent topics available?"
+          ServerToClientBadParse e -> liftEff $ throw $ "Bad parse: " <> e
+          ServerToClient t m y -> do
+            mState <- liftEff $ getTopicState suiteStateRef t
+            case mState of
+              NoTopic -> liftEff $ throw "No topic"
+              HasTopic state -> case m of
+                Failure -> liftEff $ throw $ "Topic failed: " <> show t <> ", " <> show y
+                -- order:
+                -- clientG
+                -- serverS
+                -- clientD
+                -- serverG
+                -- clientS
+                -- serverD
+                -- verify
+                Serialized -> do
+                  runExists (\(TestTopicState {serverSReceived}) -> liftEff $ writeRef serverSReceived (Just incoming)) state
+                  mOk <- liftEff $ gotServerSerialize state y
+                  if isOkay mOk
+                    then do
+                      mOutgoing <- liftEff $ deserializeValueServerOrigin state t
+                      case mOutgoing of
+                        HasServerS (DesValue outgoing) -> do
+                          o' <- liftEff $ send client outgoing
+                          runExists (\(TestTopicState {clientDSent}) -> liftEff $ writeRef clientDSent (Just o')) state
+                        _ -> liftEff $ fail' suiteStateRef client "Bad deserialize value: " t mOutgoing
+                    else liftEff $ fail' suiteStateRef client "Bad got serialize: " t mOk
+                GeneratedInput -> do
+                  runExists (\(TestTopicState {serverGReceived}) -> liftEff $ writeRef serverGReceived (Just incoming)) state
+                  mOk <- liftEff $ gotServerGenValue state y
+                  if isOkay mOk
+                    then do
+                      mOutgoing <- liftEff $ serializeValueServerOrigin state t
+                      case mOutgoing of
+                        HasServerG outgoing -> do
+                          o' <- liftEff $ send client outgoing
+                          runExists (\(TestTopicState {clientSSent}) -> liftEff $ writeRef clientSSent (Just o')) state
+                        _ -> liftEff $ fail' suiteStateRef client "Bad serialize value: " t mOutgoing
+                    else liftEff $ fail' suiteStateRef client "Bad got gen: " t mOk
+                DeSerialized -> do
+                  runExists (\(TestTopicState {serverDReceived}) -> liftEff $ writeRef serverDReceived (Just incoming)) state
+                  mOk <- liftEff $ gotServerDeSerialize state y
+                  if isOkay mOk
+                    then do
+                      mOk' <- liftEff $ verify state
+                      if isOkay mOk'
+                        then pure unit -- FIXME silent success?
+                        else liftEff $ fail' suiteStateRef client "Bad verify: " t mOk'
+                    else liftEff $ fail' suiteStateRef client "Bad got deserialize: " t mOk
+          Continue t -> do
+            mState <- liftEff $ getTopicState suiteStateRef t
+            case mState of
+              NoTopic -> liftEff $ throw "No topic"
+              HasTopic state -> do
+                mX' <- liftEff $ generateValue state t
+                case mX' of
+                  GenValue outgoing -> do
+                    o' <- liftEff $ send client outgoing
+                    runExists (\(TestTopicState {clientGSent}) -> liftEff $ writeRef clientGSent (Just o')) state
+                  DoneGenerating -> do
+                    _ <- liftEff $ send client (Finished t)
+                    liftEff $ log $ "Topic finished: " <> show t
+                    liftEff $ modifyRef topicsPendingRef (Set.delete t)
+                    ts <- liftEff $ readRef topicsPendingRef
+                    when (ts == Set.empty) $ do
+                      liftEff $ log "Tests finished."
+                      liftEff $ close client
+
+
+fail' :: forall a eff
+       . Show a
+      => TestSuiteState
+      -> Socket Dealer Router Connected
+      -> String
+      -> TestTopic
+      -> a
+      -> Eff ( ref :: REF
+             , zeromq :: ZEROMQ
+             , exception :: EXCEPTION
+             , buffer :: BUFFER
+             , console :: CONSOLE
+             | eff) Unit
+fail' suiteStateRef client prefix t v = do
+  dumpTopic suiteStateRef t
+  _ <- send client $ ClientToServer t Failure $ encodeJson $ show v
+  throw $ prefix <> show t <> ", " <> show v
+  
 
 
 send :: forall eff
       . Socket Dealer Router Connected
      -> ClientToServer
-     -> Eff (zeromq :: ZEROMQ, buffer :: BUFFER | eff) Unit
-send client x = sendJson unit client x
+     -> Eff (zeromq :: ZEROMQ, buffer :: BUFFER | eff) Buffer
+send client x = do
+  buf <- Buffer.fromString (show (encodeJson x)) Buffer.UTF8
+  sendMany unit client (NonEmpty buf [])
+  pure buf
 
 
 dumpTopic :: forall eff

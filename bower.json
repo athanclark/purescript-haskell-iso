@@ -12,7 +12,7 @@
     "purescript-now": "3.x",
     "purescript-string-parsers": "^3.1.0",
     "purescript-js-date": "^4.0.0",
-    "purescript-zeromq": "^0.0.3",
+    "purescript-zeromq": "^0.0.4",
     "purescript-uuid": "^4.0.0",
     "purescript-sets": "git@git.localcooking.com:private-tooling/purescript-sets.git#3b5eee2df36d7bebc5816210b684bc35c1f94434",
     "purescript-uri": "git@git.localcooking.com:private-tooling/purescript-uri.git#0647b672c505514581399e5c47aa7ef2b7b73404",

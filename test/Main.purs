@@ -9,15 +9,19 @@ import Data.Argonaut.JSONEither (JSONEither)
 import Data.Argonaut.JSONTuple (JSONTuple)
 import Data.Argonaut.JSONDate (JSONDate)
 import Data.Argonaut.JSONDateTime (JSONDateTime)
+import Data.Argonaut.JSONString (JSONString)
 
 import Prelude
 import Data.Maybe (Maybe (..))
+import Data.Either (Either (..))
 import Data.Tuple (Tuple (..))
 import Data.URI (Authority (..), Host (NameAddress), Port (..))
+import Data.Argonaut (class EncodeJson, class DecodeJson, encodeJson, decodeJson)
 import Type.Proxy (Proxy (..))
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Console (CONSOLE, log)
 import Control.Monad.Eff.Ref (REF)
+import Test.QuickCheck (quickCheck, Result (..))
 
 
 
@@ -25,6 +29,7 @@ import Control.Monad.Eff.Ref (REF)
 main :: Eff _ Unit
 main = do
   log "Starting tests..."
+  quickCheck (jsonIso :: JSONString -> _)
   startClient
     { controlHost: Authority Nothing [Tuple (NameAddress "localhost") (Just (Port 5561))]
     , testSuite: tests
@@ -43,3 +48,18 @@ tests = do
   registerTopic (TestTopic "JSONTuple") (Proxy :: Proxy (JSONTuple JSONUnit JSONUnit))
   registerTopic (TestTopic "JSONDate") (Proxy :: Proxy JSONDate)
   registerTopic (TestTopic "JSONDateTime") (Proxy :: Proxy JSONDateTime)
+  registerTopic (TestTopic "JSONString") (Proxy :: Proxy JSONString)
+
+
+
+jsonIso :: forall a
+         . EncodeJson a
+         => DecodeJson a
+         => Eq a
+         => Show a
+         => a -> Result
+jsonIso x = case decodeJson (encodeJson x) of
+  Left e -> Failed e
+  Right y
+    | y == x -> Success
+    | otherwise -> Failed $ "Mismatch: " <> show x <> ", " <> show y
