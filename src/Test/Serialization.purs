@@ -106,8 +106,9 @@ startClient {controlHost,testSuite} = do
                   HasTopic state -> do
                     mX' <- liftEff $ generateValue state t
                     case mX' of
-                      GenValue outgoing ->
-                        liftEff $ send client outgoing
+                      GenValue outgoing -> do
+                        o' <- liftEff $ send client outgoing
+                        runExists (\(TestTopicState {clientGSent}) -> liftEff $ writeRef clientGSent (Just o')) state
                       DoneGenerating -> liftEff $ throw "Done generating on init?"
               pure unit
             | otherwise -> liftEff $ throw $ "Mismatched topics: "

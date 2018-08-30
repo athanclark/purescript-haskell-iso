@@ -40,6 +40,7 @@ main = do
 tests :: forall eff
        . TestSuiteM (ref :: REF | eff) Unit
 tests = do
+  registerTopic (TestTopic "TestTopic") (Proxy :: Proxy TestTopic)
   registerTopic (TestTopic "MsgType") (Proxy :: Proxy MsgType)
   registerTopic (TestTopic "ClientToServer") (Proxy :: Proxy ClientToServer)
   registerTopic (TestTopic "ServerToClient") (Proxy :: Proxy ServerToClient)

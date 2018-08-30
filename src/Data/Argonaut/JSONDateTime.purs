@@ -14,6 +14,7 @@ import Data.Enum (fromEnum)
 import Data.Generic (class Generic, gEq)
 import Data.Argonaut (class EncodeJson, class DecodeJson, encodeJson, decodeJson)
 import Data.Argonaut as Argonaut
+import Data.String as String
 import Text.Parsing.StringParser (Parser, runParser)
 import Text.Parsing.StringParser as Parser
 import Text.Parsing.StringParser.String (regex)
@@ -55,7 +56,17 @@ instance showJSONDateTime :: Show JSONDateTime where
           , second: Int.toNumber $ fromEnum $ Time.second time''
           , millisecond: Int.toNumber $ fromEnum $ Time.millisecond time''
           }
-    in  unsafePerformEff $ JSDate.toISOString date'
+        s = unsafePerformEff $ JSDate.toISOString date'
+        y = case String.stripSuffix (String.Pattern "Z") s of
+          Nothing -> s
+          Just s' -> case String.stripSuffix (String.Pattern "0") s' of
+            Nothing -> s' <> "Z"
+            Just s'' -> case String.stripSuffix (String.Pattern "0") s'' of
+              Nothing -> s'' <> "Z"
+              Just s''' -> case String.stripSuffix (String.Pattern ".0") s''' of
+                Nothing -> s''' <> "Z"
+                Just s'''' -> s'''' <> "Z"
+    in  y
 
 instance encodeJsonJSONDateTime :: EncodeJson JSONDateTime where
   encodeJson = encodeJson <<< show

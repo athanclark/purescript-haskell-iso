@@ -10,13 +10,12 @@ import Data.Set (Set)
 import Data.Set as Set
 import Data.Map (Map)
 import Data.Map as Map
-import Data.Diff (class DiffC, diffC)
 import Data.Enum (enumFromTo)
 import Data.Generic (class Generic, gShow, gEq, gCompare)
 import Data.NonEmpty (NonEmpty (..))
 import Data.String.Yarn as String
 import Data.Exists (Exists, mkExists, runExists)
-import Data.These (These)
+import Data.These (These (..))
 import Data.Bifunctor (bimap)
 import Type.Proxy (Proxy (..))
 import Control.Alternative ((<|>))
@@ -195,10 +194,9 @@ instance decodeJsonServerToClient :: DecodeJson ServerToClient where
 
 newtype TestTopicState a = TestTopicState
   { generate :: Gen a
-  , show' :: a -> String
   , serialize :: a -> Json
   , deserialize :: Json -> Either String a
-  , diffC :: a -> a -> Maybe (These a a)
+  , eq :: a -> a -> Boolean
   , size :: Ref Int
   , serverG :: Ref (Maybe a)
   , serverGReceived :: Ref (Maybe Buffer)
@@ -219,9 +217,9 @@ emptyTestTopicState :: forall a eff
                      . Arbitrary a
                     => EncodeJson a
                     => DecodeJson a
-                    => DiffC a a
-                    => Show a
-                    => Proxy a -> Eff (ref :: REF | eff) (Exists TestTopicState)
+                    => Eq a
+                    => Proxy a
+                    -> Eff (ref :: REF | eff) (Exists TestTopicState)
 emptyTestTopicState Proxy = do
   size <- newRef 1
   (serverG :: Ref (Maybe a)) <- newRef Nothing
@@ -238,10 +236,9 @@ emptyTestTopicState Proxy = do
   clientDSent <- newRef Nothing
   pure $ mkExists $ TestTopicState
     { generate: arbitrary
-    , show': show
     , serialize: encodeJson
     , deserialize: decodeJson
-    , diffC: diffC
+    , eq: eq
     , size
     , serverG
     , serverGReceived
@@ -268,7 +265,7 @@ type TestSuiteM eff a = ReaderT TestSuiteState (Eff eff) a
 
 
 registerTopic :: forall a eff
-               . Arbitrary a => EncodeJson a => DecodeJson a => DiffC a a => Show a
+               . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
               => TestTopic -> Proxy a -> TestSuiteM (ref :: REF | eff) Unit
 registerTopic topic p = do
   xsRef <- ask
@@ -464,7 +461,6 @@ data ServerDeSerializedMatch a
     , serverD :: Json
     , clientSSent :: Buffer
     , serverDReceived :: Buffer
-    , difference :: String
     }
 
 derive instance genericServerDeSerializedMatch :: Generic a => Generic (ServerDeSerializedMatch a)
@@ -649,8 +645,7 @@ verify ex =
       go (TestTopicState
         { serialize
         , deserialize
-        , show'
-        , diffC
+        , eq
         , clientG
         , serverS
         , clientD
@@ -694,16 +689,17 @@ verify ex =
                 Just clientD' -> map HasClientD $ do
                   case deserialize serverS' of
                     Left e -> pure (CantDes e)
-                    Right serverS'' -> case diffC serverS'' clientD' of
-                      Just difference -> do
-                        let clientD'' = serialize clientD'
-                        pure $ DesValue $ ClientDeSerializedMismatch
-                          { serverS: serverS'
-                          , clientD: clientD''
-                          , serverSReceived: fromUtf8String (show serverS')
-                          , clientDSent: fromUtf8String (show clientD'')
-                          }
-                      Nothing -> (DesValue <<< ClientDeSerializedMatch) <$> x
+                    Right serverS'' ->
+                      if not (eq serverS'' clientD')
+                        then do
+                          let clientD'' = serialize clientD'
+                          pure $ DesValue $ ClientDeSerializedMismatch
+                            { serverS: serverS'
+                            , clientD: clientD''
+                            , serverSReceived: fromUtf8String (show serverS')
+                            , clientDSent: fromUtf8String (show clientD'')
+                            }
+                        else (DesValue <<< ClientDeSerializedMatch) <$> x
 
             serverSMatch :: (Json -> Eff (ref :: REF | eff) _)
                          -> Eff (ref :: REF | eff)
@@ -741,17 +737,17 @@ verify ex =
                 Just serverD' -> map HasServerD $ do
                   case deserialize clientS' of
                     Left e -> pure (CantDes e)
-                    Right clientS'' -> case diffC clientS'' serverD' of
-                      Just difference -> do
-                        let serverD'' = serialize serverD'
-                        pure $ DesValue $ ServerDeSerializedMismatch
-                          { clientS: clientS'
-                          , serverD: serverD''
-                          , clientSSent: fromUtf8String (show clientS')
-                          , serverDReceived: fromUtf8String (show serverD'')
-                          , difference: show (bimap show' show' difference)
-                          }
-                      Nothing -> pure $ DesValue $ ServerDeSerializedMatch $ unit
+                    Right clientS'' -> 
+                      if not (eq clientS'' serverD')
+                        then do
+                          let serverD'' = serialize serverD'
+                          pure $ DesValue $ ServerDeSerializedMismatch
+                            { clientS: clientS'
+                            , serverD: serverD''
+                            , clientSSent: fromUtf8String (show clientS')
+                            , serverDReceived: fromUtf8String (show serverD'')
+                            }
+                        else pure $ DesValue $ ServerDeSerializedMatch $ unit
         clientSMatch $ clientDMatch $ serverSMatch serverDMatch
   in  runExists go ex
 
@@ -762,3 +758,5 @@ foreign import toHexString :: Buffer -> String
 foreign import toUtf8String :: Buffer -> String
 foreign import fromHexString :: String -> Buffer
 foreign import fromUtf8String :: String -> Buffer
+
+
