@@ -10,11 +10,14 @@ import Data.Set (Set)
 import Data.Set as Set
 import Data.Map (Map)
 import Data.Map as Map
+import Data.Diff (class DiffC, diffC)
 import Data.Enum (enumFromTo)
 import Data.Generic (class Generic, gShow, gEq, gCompare)
 import Data.NonEmpty (NonEmpty (..))
 import Data.String.Yarn as String
 import Data.Exists (Exists, mkExists, runExists)
+import Data.These (These)
+import Data.Bifunctor (bimap)
 import Type.Proxy (Proxy (..))
 import Control.Alternative ((<|>))
 import Control.Monad.Reader (ReaderT, ask)
@@ -29,6 +32,9 @@ import Test.QuickCheck.LCG (randomSeed)
 import Unsafe.Coerce (unsafeCoerce)
 import Node.Buffer (Buffer)
 
+
+
+-- * Network Messages
 
 newtype TestTopic = TestTopic String
 
@@ -184,11 +190,15 @@ instance decodeJsonServerToClient :: DecodeJson ServerToClient where
 
 
 
+
+-- * Internal State
+
 newtype TestTopicState a = TestTopicState
   { generate :: Gen a
+  , show' :: a -> String
   , serialize :: a -> Json
   , deserialize :: Json -> Either String a
-  , eq :: a -> a -> Boolean
+  , diffC :: a -> a -> Maybe (These a a)
   , size :: Ref Int
   , serverG :: Ref (Maybe a)
   , serverGReceived :: Ref (Maybe Buffer)
@@ -209,7 +219,8 @@ emptyTestTopicState :: forall a eff
                      . Arbitrary a
                     => EncodeJson a
                     => DecodeJson a
-                    => Eq a
+                    => DiffC a a
+                    => Show a
                     => Proxy a -> Eff (ref :: REF | eff) (Exists TestTopicState)
 emptyTestTopicState Proxy = do
   size <- newRef 1
@@ -227,9 +238,10 @@ emptyTestTopicState Proxy = do
   clientDSent <- newRef Nothing
   pure $ mkExists $ TestTopicState
     { generate: arbitrary
+    , show': show
     , serialize: encodeJson
     , deserialize: decodeJson
-    , eq: eq
+    , diffC: diffC
     , size
     , serverG
     , serverGReceived
@@ -256,7 +268,7 @@ type TestSuiteM eff a = ReaderT TestSuiteState (Eff eff) a
 
 
 registerTopic :: forall a eff
-               . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
+               . Arbitrary a => EncodeJson a => DecodeJson a => DiffC a a => Show a
               => TestTopic -> Proxy a -> TestSuiteM (ref :: REF | eff) Unit
 registerTopic topic p = do
   xsRef <- ask
@@ -264,6 +276,9 @@ registerTopic topic p = do
     state <- emptyTestTopicState p
     modifyRef xsRef (Map.insert topic state)
 
+
+
+-- * Error Reporting
 
 class IsOkay a where
   isOkay :: a -> Boolean
@@ -424,7 +439,12 @@ instance isOkayHasClientS :: IsOkay a => IsOkay (HasClientS a) where
 
 data ServerSerializedMatch a
   = ServerSerializedMatch a
-  | ServerSerializedMismatch Json Json
+  | ServerSerializedMismatch
+    { serverG :: Json
+    , clientS :: Json
+    , serverGReceived :: Buffer
+    , clientSSent :: Buffer
+    }
 
 derive instance genericServerSerializedMatch :: Generic a => Generic (ServerSerializedMatch a)
 
@@ -433,13 +453,19 @@ instance showServerSerializedMatch :: Generic a => Show (ServerSerializedMatch a
 
 instance isOkayServerSerializedMatch :: IsOkay a => IsOkay (ServerSerializedMatch a) where
   isOkay x = case x of
-    ServerSerializedMismatch _ _ -> false
+    ServerSerializedMismatch _ -> false
     ServerSerializedMatch y -> isOkay y
 
 
 data ServerDeSerializedMatch a
   = ServerDeSerializedMatch a
-  | ServerDeSerializedMismatch Json Json
+  | ServerDeSerializedMismatch
+    { clientS :: Json
+    , serverD :: Json
+    , clientSSent :: Buffer
+    , serverDReceived :: Buffer
+    , difference :: String
+    }
 
 derive instance genericServerDeSerializedMatch :: Generic a => Generic (ServerDeSerializedMatch a)
 
@@ -448,13 +474,18 @@ instance showServerDeSerializedMatch :: Generic a => Show (ServerDeSerializedMat
 
 instance isOkayServerDeSerializedMatch :: IsOkay a => IsOkay (ServerDeSerializedMatch a) where
   isOkay x = case x of
-    ServerDeSerializedMismatch _ _ -> false
+    ServerDeSerializedMismatch _ -> false
     ServerDeSerializedMatch y -> isOkay y
 
 
 data ClientSerializedMatch a
   = ClientSerializedMatch a
-  | ClientSerializedMismatch Json Json
+  | ClientSerializedMismatch
+    { clientG :: Json
+    , serverS :: Json
+    , clientGSent :: Buffer
+    , serverSReceived :: Buffer
+    }
 
 derive instance genericClientSerializedMatch :: Generic a => Generic (ClientSerializedMatch a)
 
@@ -463,13 +494,18 @@ instance showClientSerializedMatch :: Generic a => Show (ClientSerializedMatch a
 
 instance isOkayClientSerializedMatch :: IsOkay a => IsOkay (ClientSerializedMatch a) where
   isOkay x = case x of
-    ClientSerializedMismatch _ _ -> false
+    ClientSerializedMismatch _ -> false
     ClientSerializedMatch y -> isOkay y
 
 
 data ClientDeSerializedMatch a
   = ClientDeSerializedMatch a
-  | ClientDeSerializedMismatch Json Json
+  | ClientDeSerializedMismatch
+    { serverS :: Json
+    , clientD :: Json
+    , serverSReceived :: Buffer
+    , clientDSent :: Buffer
+    }
 
 derive instance genericClientDeSerializedMatch :: Generic a => Generic (ClientDeSerializedMatch a)
 
@@ -478,10 +514,13 @@ instance showClientDeSerializedMatch :: Generic a => Show (ClientDeSerializedMat
 
 instance isOkayClientDeSerializedMatch :: IsOkay a => IsOkay (ClientDeSerializedMatch a) where
   isOkay x = case x of
-    ClientDeSerializedMismatch _ _ -> false
+    ClientDeSerializedMismatch _ -> false
     ClientDeSerializedMatch y -> isOkay y
 
 
+
+
+-- * Functions
 
 getTopicState :: forall eff
                . TestSuiteState
@@ -502,8 +541,7 @@ generateValue :: forall eff
                  , random :: RANDOM
                  | eff) (GenValue ClientToServer)
 generateValue ex topic =
-  let go :: forall a -- . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
-          . TestTopicState a -> Eff (ref :: REF, random :: RANDOM | eff) (GenValue ClientToServer)
+  let go :: forall a. TestTopicState a -> Eff (ref :: REF, random :: RANDOM | eff) (GenValue ClientToServer)
       go (TestTopicState {size,generate,serialize,clientG}) = do
         s <- readRef size
         if s >= 100
@@ -522,8 +560,7 @@ gotServerGenValue :: forall eff
                   -> Json
                   -> Eff (ref :: REF | eff) (DesValue Unit)
 gotServerGenValue ex value =
-  let go :: forall a -- . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
-          . TestTopicState a -> Eff (ref :: REF | eff) (DesValue Unit)
+  let go :: forall a. TestTopicState a -> Eff (ref :: REF | eff) (DesValue Unit)
       go (TestTopicState {deserialize,serverG}) = case deserialize value of
         Left e -> pure (CantDes e)
         Right y -> do
@@ -537,8 +574,7 @@ serializeValueServerOrigin :: forall eff
                            -> TestTopic
                            -> Eff (ref :: REF | eff) (HasServerG ClientToServer)
 serializeValueServerOrigin ex topic =
-  let go :: forall a -- . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
-          . TestTopicState a -> Eff (ref :: REF | eff) (HasServerG ClientToServer)
+  let go :: forall a. TestTopicState a -> Eff (ref :: REF | eff) (HasServerG ClientToServer)
       go (TestTopicState {serialize,serverG,clientS}) = do
         mX <- readRef serverG
         case mX of
@@ -555,8 +591,7 @@ gotServerSerialize :: forall eff
                    -> Json
                    -> Eff (ref :: REF | eff) Unit
 gotServerSerialize ex value =
-  let go :: forall a -- . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
-          . TestTopicState a -> Eff (ref :: REF | eff) Unit
+  let go :: forall a. TestTopicState a -> Eff (ref :: REF | eff) Unit
       go (TestTopicState {deserialize,serverS}) = do
         writeRef serverS (Just value)
   in  runExists go ex
@@ -567,8 +602,7 @@ deserializeValueServerOrigin :: forall eff
                              -> TestTopic
                              -> Eff (ref :: REF | eff) (HasServerS (DesValue ClientToServer))
 deserializeValueServerOrigin ex topic =
-  let go :: forall a -- . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
-          . TestTopicState a -> Eff (ref :: REF | eff) (HasServerS (DesValue ClientToServer))
+  let go :: forall a. TestTopicState a -> Eff (ref :: REF | eff) (HasServerS (DesValue ClientToServer))
       go (TestTopicState {deserialize,serverS,clientD,serialize}) = do
         mX <- readRef serverS
         case mX of
@@ -586,8 +620,7 @@ gotServerDeSerialize :: forall eff
                      -> Json
                      -> Eff (ref :: REF | eff) (DesValue Unit)
 gotServerDeSerialize ex value =
-  let go :: forall a -- . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
-          . TestTopicState a -> Eff (ref :: REF | eff) (DesValue Unit)
+  let go :: forall a. TestTopicState a -> Eff (ref :: REF | eff) (DesValue Unit)
       go (TestTopicState {deserialize,serverD}) = case deserialize value of
         Left e -> pure (CantDes e)
         Right y -> do
@@ -612,47 +645,120 @@ verify :: forall eff
                               ( DesValue
                                 ( ServerDeSerializedMatch Unit))))))))))))
 verify ex =
-  let go :: forall a -- . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
-          . TestTopicState a -> Eff (ref :: REF | eff) _
-      go (TestTopicState {serialize,deserialize,eq,clientG,serverS,clientD,serverG,clientS,serverD}) = do
-        mClientG <- readRef clientG
-        case mClientG of
-          Nothing -> pure NoClientG
-          Just clientG' -> map HasClientG $ do
-            mServerS <- readRef serverS
-            case mServerS of
-              Nothing -> pure NoServerS
-              Just serverS' -> map HasServerS $ do
-                if serialize clientG' /= serverS'
-                  then pure $ ClientSerializedMismatch (serialize clientG') serverS'
-                  else map ClientSerializedMatch $ do
-                    mClientD <- readRef clientD
-                    case mClientD of
-                      Nothing -> pure NoClientD
-                      Just clientD' -> map HasClientD $ do
-                        case deserialize serverS' of
-                          Left e -> pure (CantDes e)
-                          Right clientD''
-                            | not (eq clientD'' clientD') -> pure $ DesValue $ ClientDeSerializedMismatch (serialize clientD'') (serialize clientD')
-                            | otherwise -> map (DesValue <<< ClientDeSerializedMatch) $ do
-                                mServerG <- readRef serverG
-                                case mServerG of
-                                  Nothing -> pure NoServerG
-                                  Just serverG' -> map HasServerG $ do
-                                    mClientS <- readRef clientS
-                                    case mClientS of
-                                      Nothing -> pure NoClientS
-                                      Just clientS' -> map HasClientS $ do
-                                        if serialize serverG' /= clientS'
-                                          then pure $ ServerSerializedMismatch (serialize serverG') clientS'
-                                          else map ServerSerializedMatch $ do
-                                            mServerD <- readRef serverD
-                                            case mServerD of
-                                              Nothing -> pure NoServerD
-                                              Just serverD' -> map HasServerD $ do
-                                                case deserialize clientS' of
-                                                  Left e -> pure (CantDes e)
-                                                  Right serverS''
-                                                    | not (eq serverS'' serverD') -> pure $ DesValue $ ServerDeSerializedMismatch (serialize serverS'') (serialize serverD')
-                                                    | otherwise -> pure $ DesValue $ ServerDeSerializedMatch $ unit
+  let go :: forall a. TestTopicState a -> Eff (ref :: REF | eff) _
+      go (TestTopicState
+        { serialize
+        , deserialize
+        , show'
+        , diffC
+        , clientG
+        , serverS
+        , clientD
+        , serverG
+        , clientS
+        , serverD
+        }) = do
+        let clientSMatch :: (Json -> Eff (ref :: REF | eff) _)
+                         -> Eff (ref :: REF | eff)
+                            (HasClientG
+                              (HasServerS
+                                (ClientSerializedMatch _)))
+            clientSMatch x = do
+              mClientG <- readRef clientG
+              case mClientG of
+                Nothing -> pure NoClientG
+                Just clientG' -> map HasClientG $ do
+                  mServerS <- readRef serverS
+                  case mServerS of
+                    Nothing -> pure NoServerS
+                    Just serverS' -> map HasServerS $ do
+                      let clientG'' = serialize clientG'
+                      if  clientG'' /= serverS'
+                        then pure $ ClientSerializedMismatch
+                              { clientG: clientG''
+                              , serverS: serverS'
+                              , clientGSent: fromUtf8String (show clientG'')
+                              , serverSReceived: fromUtf8String (show serverS')
+                              }
+                        else ClientSerializedMatch <$> x serverS'
+
+            clientDMatch :: Eff (ref :: REF | eff) _ -> Json
+                         -> Eff (ref :: REF | eff)
+                            (HasClientD
+                              (DesValue
+                                (ClientDeSerializedMatch _)))
+            clientDMatch x serverS' = do
+              mClientD <- readRef clientD
+              case mClientD of
+                Nothing -> pure NoClientD
+                Just clientD' -> map HasClientD $ do
+                  case deserialize serverS' of
+                    Left e -> pure (CantDes e)
+                    Right serverS'' -> case diffC serverS'' clientD' of
+                      Just difference -> do
+                        let clientD'' = serialize clientD'
+                        pure $ DesValue $ ClientDeSerializedMismatch
+                          { serverS: serverS'
+                          , clientD: clientD''
+                          , serverSReceived: fromUtf8String (show serverS')
+                          , clientDSent: fromUtf8String (show clientD'')
+                          }
+                      Nothing -> (DesValue <<< ClientDeSerializedMatch) <$> x
+
+            serverSMatch :: (Json -> Eff (ref :: REF | eff) _)
+                         -> Eff (ref :: REF | eff)
+                            (HasServerG
+                              (HasClientS
+                                (ServerSerializedMatch _)))
+            serverSMatch x = do
+              mServerG <- readRef serverG
+              case mServerG of
+                Nothing -> pure NoServerG
+                Just serverG' -> map HasServerG $ do
+                  mClientS <- readRef clientS
+                  case mClientS of
+                    Nothing -> pure NoClientS
+                    Just clientS' -> map HasClientS $ do
+                      let serverG'' = serialize serverG'
+                      if  serverG'' /= clientS'
+                        then pure $ ServerSerializedMismatch
+                                { serverG: serverG''
+                                , clientS: clientS'
+                                , serverGReceived: fromUtf8String (show serverG'')
+                                , clientSSent: fromUtf8String (show clientS')
+                                }
+                        else ServerSerializedMatch <$> x clientS'
+
+            serverDMatch :: Json
+                         -> Eff (ref :: REF | eff)
+                            (HasServerD
+                              (DesValue
+                                (ServerDeSerializedMatch Unit)))
+            serverDMatch clientS' = do
+              mServerD <- readRef serverD
+              case mServerD of
+                Nothing -> pure NoServerD
+                Just serverD' -> map HasServerD $ do
+                  case deserialize clientS' of
+                    Left e -> pure (CantDes e)
+                    Right clientS'' -> case diffC clientS'' serverD' of
+                      Just difference -> do
+                        let serverD'' = serialize serverD'
+                        pure $ DesValue $ ServerDeSerializedMismatch
+                          { clientS: clientS'
+                          , serverD: serverD''
+                          , clientSSent: fromUtf8String (show clientS')
+                          , serverDReceived: fromUtf8String (show serverD'')
+                          , difference: show (bimap show' show' difference)
+                          }
+                      Nothing -> pure $ DesValue $ ServerDeSerializedMatch $ unit
+        clientSMatch $ clientDMatch $ serverSMatch serverDMatch
   in  runExists go ex
+
+
+
+
+foreign import toHexString :: Buffer -> String
+foreign import toUtf8String :: Buffer -> String
+foreign import fromHexString :: String -> Buffer
+foreign import fromUtf8String :: String -> Buffer

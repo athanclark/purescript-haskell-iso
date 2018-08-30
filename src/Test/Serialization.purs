@@ -8,6 +8,7 @@ import Test.Serialization.Types
   , generateValue, gotServerGenValue, gotServerSerialize, gotServerDeSerialize
   , deserializeValueServerOrigin, serializeValueServerOrigin, verify
   , getTopicState
+  , toHexString, toUtf8String
   )
 
 import Prelude
@@ -23,6 +24,7 @@ import Data.Foldable (for_)
 import Data.UUID (GENUUID, genUUID)
 import Data.Exists (runExists)
 import Data.NonEmpty (NonEmpty (..))
+import Data.Generic (gShow)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.Rec.Class (forever)
 import Control.Monad.Aff (Aff, runAff_, forkAff, Fiber, killFiber)
@@ -138,7 +140,7 @@ receiveClient suiteStateRef client topicsPendingRef = forever $ do
             case mState of
               NoTopic -> liftEff $ throw "No topic"
               HasTopic state -> case m of
-                Failure -> liftEff $ throw $ "Topic failed: " <> show t <> ", " <> show y
+                Failure -> liftEff $ fail' suiteStateRef client "Failure: " t y
                 -- order:
                 -- clientG
                 -- serverS
@@ -241,17 +243,41 @@ dumpTopic xsRef t = do
     NoTopic -> warn "No topic..?"
     HasTopic ex ->
       let go :: forall a. TestTopicState a -> Eff (ref :: REF, console :: CONSOLE | eff) Unit
-          go (TestTopicState {serialize,clientG,serverS,clientD,serverG,clientS,serverD}) = do
+          go (TestTopicState
+            { serialize
+            , clientG
+            , clientGSent
+            , serverS
+            , serverSReceived
+            , clientD
+            , clientDSent
+            , serverG
+            , serverGReceived
+            , clientS
+            , clientSSent
+            , serverD
+            , serverDReceived}) = do
             mClientG <- readRef clientG
             log $ "clientG: " <> show (serialize <$> mClientG)
+            showBuffer clientGSent     "  sent:     "
             mServerS <- readRef serverS
             log $ "serverS: " <> show mServerS
+            showBuffer serverSReceived "  received: "
             mClientD <- readRef clientD
             log $ "clientD: " <> show (serialize <$> mClientD)
+            showBuffer clientDSent     "  sent:     "
             mServerG <- readRef serverG
             log $ "serverG: " <> show (serialize <$> mServerG)
+            showBuffer serverGReceived "  received: "
             mClientS <- readRef clientS
             log $ "clientS: " <> show mClientS
+            showBuffer clientSSent     "  sent:     "
             mServerD <- readRef serverD
             log $ "serverD: " <> show (serialize <$> mServerD)
+            showBuffer serverDReceived "  received: "
       in  runExists go ex
+  where
+    showBuffer bufRef prefix = do
+      mBuf <- readRef bufRef
+      log $ prefix <> gShow mBuf
+      log $ prefix <> show (toUtf8String <$> mBuf)

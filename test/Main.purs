@@ -2,7 +2,7 @@ module Test.Main where
 
 import Test.Serialization (startClient)
 import Test.Serialization.Types
-  ( TestSuiteM, TestTopic (..), ChannelMsg, ClientToServer, ServerToClient
+  ( TestSuiteM, TestTopic (..), MsgType, ClientToServer, ServerToClient
   , registerTopic)
 import Data.Argonaut.JSONUnit (JSONUnit)
 import Data.Argonaut.JSONEither (JSONEither)
@@ -29,7 +29,7 @@ import Test.QuickCheck (quickCheck, Result (..))
 main :: Eff _ Unit
 main = do
   log "Starting tests..."
-  quickCheck (jsonIso :: JSONString -> _)
+  -- quickCheck (jsonIso :: JSONEither JSONString JSONString -> _)
   startClient
     { controlHost: Authority Nothing [Tuple (NameAddress "localhost") (Just (Port 5561))]
     , testSuite: tests
@@ -40,7 +40,7 @@ main = do
 tests :: forall eff
        . TestSuiteM (ref :: REF | eff) Unit
 tests = do
-  registerTopic (TestTopic "ChannelMsg") (Proxy :: Proxy ChannelMsg)
+  registerTopic (TestTopic "MsgType") (Proxy :: Proxy MsgType)
   registerTopic (TestTopic "ClientToServer") (Proxy :: Proxy ClientToServer)
   registerTopic (TestTopic "ServerToClient") (Proxy :: Proxy ServerToClient)
   registerTopic (TestTopic "JSONUnit") (Proxy :: Proxy JSONUnit)

@@ -5,6 +5,7 @@ import Prelude
 import Data.Maybe (Maybe (..))
 import Data.Either (Either (..))
 import Data.String.Yarn as String
+import Data.String.Normalize (nfkc)
 import Data.Generic (class Generic)
 import Data.Argonaut (class EncodeJson, class DecodeJson)
 import Text.Parsing.StringParser (Parser, runParser)
@@ -20,7 +21,7 @@ newtype JSONString = JSONString String
 
 derive instance genericJSONString :: Generic JSONString
 derive newtype instance showJSONString :: Show JSONString
-derive newtype instance eqJSONString :: Eq JSONString
+-- derive newtype instance eqJSONString :: Eq JSONString
 derive newtype instance ordJSONString :: Ord JSONString
 derive newtype instance encodeJsonJSONString :: EncodeJson JSONString
 derive newtype instance decodeJsonJSONString :: DecodeJson JSONString
@@ -28,9 +29,12 @@ derive newtype instance decodeJsonJSONString :: DecodeJson JSONString
 instance arbitraryJSONString :: Arbitrary JSONString where
   arbitrary = jsonString <$> arbitrary
 
+instance eqJSONString :: Eq JSONString where
+  eq (JSONString xs) (JSONString ys) = eq ((String.toChars xs) :: Array _) (String.toChars ys)
+
 
 jsonString :: String -> JSONString
-jsonString = JSONString -- <<< show
+jsonString = JSONString -- <<< nfkc -- <<< show
 
 
 getJSONString :: JSONString -> String
