@@ -16,11 +16,14 @@
     "purescript-uuid": "^4.0.0",
     "purescript-unorm": "^0.0.0",
     "purescript-these": "^3.0.0",
+    "purescript-email-validate": "^3.5.0",
+    "purescript-typelevel": "^3.0.0",
     "purescript-sets": "git@git.localcooking.com:private-tooling/purescript-sets.git#3b5eee2df36d7bebc5816210b684bc35c1f94434",
     "purescript-uri": "git@git.localcooking.com:private-tooling/purescript-uri.git#0647b672c505514581399e5c47aa7ef2b7b73404",
     "purescript-argonaut": "git@git.localcooking.com:private-tooling/purescript-argonaut.git#17bc7ec185b5424a6e380332fa9aec23b7536327"
   },
   "devDependencies": {
+    "purescript-email-validate": "git@git.localcooking.com:private-tooling/purescript-email-validate.git#0d31c1378916bedae77bdfff4e04f2e48e157495",
     "purescript-psci-support": "^3.0.0"
   },
   "resolutions": {

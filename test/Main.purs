@@ -10,6 +10,7 @@ import Data.Argonaut.JSONTuple (JSONTuple)
 import Data.Argonaut.JSONDate (JSONDate)
 import Data.Argonaut.JSONDateTime (JSONDateTime)
 import Data.Argonaut.JSONString (JSONString)
+import Data.Argonaut.JSONEmailAddress (JSONEmailAddress)
 
 import Prelude
 import Data.Maybe (Maybe (..))
@@ -50,6 +51,7 @@ tests = do
   registerTopic (TestTopic "JSONDate") (Proxy :: Proxy JSONDate)
   registerTopic (TestTopic "JSONDateTime") (Proxy :: Proxy JSONDateTime)
   registerTopic (TestTopic "JSONString") (Proxy :: Proxy JSONString)
+  registerTopic (TestTopic "JSONEmailAddress") (Proxy :: Proxy JSONEmailAddress)
 
 
 
