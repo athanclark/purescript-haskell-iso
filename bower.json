@@ -23,7 +23,6 @@
     "purescript-argonaut": "git@git.localcooking.com:private-tooling/purescript-argonaut.git#17bc7ec185b5424a6e380332fa9aec23b7536327"
   },
   "devDependencies": {
-    "purescript-email-validate": "git@git.localcooking.com:private-tooling/purescript-email-validate.git#0d31c1378916bedae77bdfff4e04f2e48e157495",
     "purescript-psci-support": "^3.0.0"
   },
   "resolutions": {

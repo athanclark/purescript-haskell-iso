@@ -10,7 +10,7 @@ import Data.String.Regex (regex, test)
 import Data.String.Regex.Flags (noFlags)
 import Data.String.Yarn as String
 import Data.Generic (class Generic)
-import Data.Argonaut (class EncodeJson, class DecodeJson)
+import Data.Argonaut (class EncodeJson, class DecodeJson, encodeJson, decodeJson, fail)
 import Data.Typelevel.Undefined (undefined)
 import Data.NonEmpty (NonEmpty (..))
 import Data.Enum (enumFromTo)
@@ -25,8 +25,18 @@ newtype JSONEmailAddress = JSONEmailAddress EmailAddress
 
 derive instance genericJSONEmailAddress :: Generic JSONEmailAddress
 derive newtype instance eqJSONEmailAddress :: Eq JSONEmailAddress
-derive newtype instance encodeJsonJSONEmailAddress :: EncodeJson JSONEmailAddress
-derive newtype instance decodeJsonJSONEmailAddress :: DecodeJson JSONEmailAddress
+-- derive newtype instance encodeJsonJSONEmailAddress :: EncodeJson JSONEmailAddress
+-- derive newtype instance decodeJsonJSONEmailAddress :: DecodeJson JSONEmailAddress
+
+instance encodeJsonJSONEmailAddress :: EncodeJson JSONEmailAddress where
+  encodeJson (JSONEmailAddress x) = encodeJson (Email.toString x)
+
+instance decodeJsonJSONEmailAddress :: DecodeJson JSONEmailAddress where
+  decodeJson json = do
+    s <- decodeJson json
+    case Email.emailAddress s of
+      Nothing -> fail "JSONEmailAddress"
+      Just e -> pure (JSONEmailAddress e)
 
 instance showJSONEmailAddress :: Show JSONEmailAddress where
   show (JSONEmailAddress x) = Email.toString x
