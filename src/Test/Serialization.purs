@@ -22,7 +22,7 @@ import Data.Set as Set
 import Data.Argonaut (class EncodeJson, encodeJson, decodeJson, jsonParser)
 import Data.Foldable (for_)
 import Data.UUID (GENUUID, genUUID)
-import Data.Exists (runExists)
+import Data.Exists (Exists, runExists)
 import Data.NonEmpty (NonEmpty (..))
 import Data.Generic (gShow)
 import Control.Monad.Reader (runReaderT)
@@ -49,6 +49,7 @@ import Node.Encoding as Buffer
 type ClientParams (eff :: # Effect) =
   { controlHost :: Authority
   , testSuite :: TestSuiteM eff Unit
+  , maxSize :: Int
   }
 
 
@@ -66,7 +67,7 @@ type Effects eff =
 startClient :: forall eff
              . ClientParams (Effects eff)
             -> Eff (Effects eff) Unit
-startClient {controlHost,testSuite} = do
+startClient {controlHost,testSuite,maxSize} = do
   client <- socket dealer router
   connect client $ URI.print $
     URI
@@ -97,14 +98,14 @@ startClient {controlHost,testSuite} = do
           TopicsAvailable ts
             | ts == topics -> do
               -- spark a listening async thread
-              receiver <- forkAff (receiveClient suiteStateRef client topicsPendingRef)
+              receiver <- forkAff (receiveClient suiteStateRef client topicsPendingRef maxSize)
               -- initiate tests
               for_ ts \t -> do
                 mState <- liftEff $ getTopicState suiteStateRef t
                 case mState of
                   NoTopic -> liftEff $ throw "No topic"
                   HasTopic state -> do
-                    mX' <- liftEff $ generateValue state t
+                    mX' <- liftEff $ generateValue state t maxSize
                     case mX' of
                       GenValue outgoing -> do
                         o' <- liftEff $ send client outgoing
@@ -120,8 +121,9 @@ receiveClient :: forall eff
                . TestSuiteState
               -> Socket Dealer Router Connected
               -> Ref (Set TestTopic)
+              -> Int
               -> Aff (Effects eff) Unit
-receiveClient suiteStateRef client topicsPendingRef = forever $ do
+receiveClient suiteStateRef client topicsPendingRef maxSize = forever $ do
   mX <- readMany client
   case mX of
     Nothing -> pure unit -- liftEff $ throw "No value?"
@@ -181,7 +183,7 @@ receiveClient suiteStateRef client topicsPendingRef = forever $ do
                     then do
                       mOk' <- liftEff $ verify state
                       if isOkay mOk'
-                        then pure unit -- FIXME silent success?
+                        then liftEff $ clearState state -- clear refs on success
                         else liftEff $ fail' suiteStateRef client "Bad verify: " t mOk'
                     else liftEff $ fail' suiteStateRef client "Bad got deserialize: " t mOk
           Continue t -> do
@@ -189,7 +191,7 @@ receiveClient suiteStateRef client topicsPendingRef = forever $ do
             case mState of
               NoTopic -> liftEff $ throw "No topic"
               HasTopic state -> do
-                mX' <- liftEff $ generateValue state t
+                mX' <- liftEff $ generateValue state t maxSize
                 case mX' of
                   GenValue outgoing -> do
                     o' <- liftEff $ send client outgoing
@@ -202,6 +204,41 @@ receiveClient suiteStateRef client topicsPendingRef = forever $ do
                     when (ts == Set.empty) $ do
                       liftEff $ log "Tests finished."
                       liftEff $ close client
+
+
+-- | Per round
+clearState :: forall eff
+            . Exists TestTopicState
+           -> Eff (ref :: REF | eff) Unit
+clearState ex = runExists go ex
+  where
+    go :: forall a. TestTopicState a -> Eff (ref :: REF | eff) Unit
+    go (TestTopicState
+      { clientG
+      , clientGSent
+      , serverS
+      , serverSReceived
+      , clientD
+      , clientDSent
+      , serverG
+      , serverGReceived
+      , clientS
+      , clientSSent
+      , serverD
+      , serverDReceived
+      }) = do
+      writeRef clientG Nothing
+      writeRef clientGSent Nothing
+      writeRef clientS Nothing
+      writeRef clientSSent Nothing
+      writeRef clientD Nothing
+      writeRef clientDSent Nothing
+      writeRef serverG Nothing
+      writeRef serverGReceived Nothing
+      writeRef serverS Nothing
+      writeRef serverSReceived Nothing
+      writeRef serverD Nothing
+      writeRef serverDReceived Nothing
 
 
 fail' :: forall a eff
@@ -246,6 +283,7 @@ dumpTopic xsRef t = do
       let go :: forall a. TestTopicState a -> Eff (ref :: REF, console :: CONSOLE | eff) Unit
           go (TestTopicState
             { serialize
+            , size
             , clientG
             , clientGSent
             , serverS
@@ -258,6 +296,8 @@ dumpTopic xsRef t = do
             , clientSSent
             , serverD
             , serverDReceived}) = do
+            size' <- readRef size
+            log $ "size: " <> show size'
             mClientG <- readRef clientG
             log $ "clientG: " <> show (serialize <$> mClientG)
             showBuffer clientGSent     "  sent:     "

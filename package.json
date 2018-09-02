@@ -16,6 +16,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "bignumber.js": "^7.2.1",
     "unorm": "^1.4.1",
     "uuid": "^3.3.2",
     "zeromq": "^4.6.0"

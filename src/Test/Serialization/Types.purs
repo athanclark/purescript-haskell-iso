@@ -532,15 +532,16 @@ getTopicState xsRef topic = do
 generateValue :: forall eff
                . Exists TestTopicState
               -> TestTopic
+              -> Int
               -> Eff
                  ( ref :: REF
                  , random :: RANDOM
                  | eff) (GenValue ClientToServer)
-generateValue ex topic =
+generateValue ex topic maxSize =
   let go :: forall a. TestTopicState a -> Eff (ref :: REF, random :: RANDOM | eff) (GenValue ClientToServer)
       go (TestTopicState {size,generate,serialize,clientG}) = do
         s <- readRef size
-        if s >= 100
+        if s >= maxSize
           then pure DoneGenerating
           else do
             g <- randomSeed

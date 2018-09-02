@@ -11,6 +11,8 @@ import Data.Argonaut.JSONDate (JSONDate)
 import Data.Argonaut.JSONDateTime (JSONDateTime)
 import Data.Argonaut.JSONString (JSONString)
 import Data.Argonaut.JSONEmailAddress (JSONEmailAddress)
+import Data.Argonaut.JSONInt (JSONInt)
+import Data.Argonaut.JSONInteger (JSONInteger)
 
 import Prelude
 import Data.Maybe (Maybe (..))
@@ -34,6 +36,7 @@ main = do
   startClient
     { controlHost: Authority Nothing [Tuple (NameAddress "localhost") (Just (Port 5561))]
     , testSuite: tests
+    , maxSize: 200
     }
 
 
@@ -52,6 +55,8 @@ tests = do
   registerTopic (TestTopic "JSONDateTime") (Proxy :: Proxy JSONDateTime)
   registerTopic (TestTopic "JSONString") (Proxy :: Proxy JSONString)
   registerTopic (TestTopic "JSONEmailAddress") (Proxy :: Proxy JSONEmailAddress)
+  registerTopic (TestTopic "JSONInt") (Proxy :: Proxy JSONInt)
+  registerTopic (TestTopic "JSONInteger") (Proxy :: Proxy JSONInteger)
 
 
 
