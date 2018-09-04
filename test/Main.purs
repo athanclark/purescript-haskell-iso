@@ -13,6 +13,7 @@ import Data.Argonaut.JSONString (JSONString)
 import Data.Argonaut.JSONEmailAddress (JSONEmailAddress)
 import Data.Argonaut.JSONInt (JSONInt)
 import Data.Argonaut.JSONInteger (JSONInteger)
+import Data.Argonaut.JSONScientific (JSONScientific)
 
 import Prelude
 import Data.Maybe (Maybe (..))
@@ -57,6 +58,7 @@ tests = do
   registerTopic (TestTopic "JSONEmailAddress") (Proxy :: Proxy JSONEmailAddress)
   registerTopic (TestTopic "JSONInt") (Proxy :: Proxy JSONInt)
   registerTopic (TestTopic "JSONInteger") (Proxy :: Proxy JSONInteger)
+  registerTopic (TestTopic "JSONScientific") (Proxy :: Proxy JSONScientific)
 
 
 
