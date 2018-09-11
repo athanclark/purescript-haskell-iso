@@ -65,7 +65,7 @@ jsonDateParser = do
     Right x -> case JSDate.toDate x of
       Nothing -> Parser.fail "Not a date"
       Just y -> pure (JSONDate y)
-  
+
 
 instance decodeJsonJSONDate :: DecodeJson JSONDate where
   decodeJson json = do

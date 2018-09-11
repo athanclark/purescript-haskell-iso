@@ -5,9 +5,6 @@ import Text.Email.Validate as Email
 
 import Prelude
 import Data.Maybe (Maybe (..))
-import Data.Either (Either (Right))
-import Data.String.Regex (regex, test)
-import Data.String.Regex.Flags (noFlags)
 import Data.String.Yarn as String
 import Data.Generic (class Generic)
 import Data.Argonaut (class EncodeJson, class DecodeJson, encodeJson, decodeJson, fail)
@@ -17,8 +14,8 @@ import Data.Enum (enumFromTo)
 import Data.List.Lazy (replicateM)
 import Control.Monad.Eff.Unsafe (unsafePerformEff)
 import Control.Monad.Eff.Console (log)
-import Test.QuickCheck (class Arbitrary, arbitrary)
-import Test.QuickCheck.Gen (elements, sized, resize, chooseInt)
+import Test.QuickCheck (class Arbitrary)
+import Test.QuickCheck.Gen (Gen, elements, sized, resize, chooseInt)
 import Partial.Unsafe (unsafePartial)
 
 
@@ -28,8 +25,6 @@ newtype JSONEmailAddress = JSONEmailAddress EmailAddress
 
 derive instance genericJSONEmailAddress :: Generic JSONEmailAddress
 derive newtype instance eqJSONEmailAddress :: Eq JSONEmailAddress
--- derive newtype instance encodeJsonJSONEmailAddress :: EncodeJson JSONEmailAddress
--- derive newtype instance decodeJsonJSONEmailAddress :: DecodeJson JSONEmailAddress
 
 instance encodeJsonJSONEmailAddress :: EncodeJson JSONEmailAddress where
   encodeJson (JSONEmailAddress x) = encodeJson (Email.toString x)
@@ -62,4 +57,5 @@ instance arbitraryJSONEmailAddress :: Arbitrary JSONEmailAddress where
         String.fromChars <$> replicateM l (elements $ NonEmpty 'a' $ enumFromTo 'b' 'z')
 
 
+scale :: forall a. (Int -> Int) -> Gen a -> Gen a
 scale f x = sized \i -> resize (f i) x

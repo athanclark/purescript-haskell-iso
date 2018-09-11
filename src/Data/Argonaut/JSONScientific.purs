@@ -1,18 +1,14 @@
 module Data.Argonaut.JSONScientific where
 
 import Prelude
-import Data.BigNumber (BigNumber, parseBigNumber, toExponential, randomBigNumber, intValue)
-import Data.Maybe (Maybe (..))
+import Data.BigNumber (BigNumber, parseBigNumber, toExponential)
 import Data.Either (Either (..))
 import Data.NonEmpty (NonEmpty (..))
 import Data.Enum (enumFromTo)
 import Data.Generic (class Generic)
 import Data.Argonaut (class EncodeJson, class DecodeJson, encodeJson, decodeJson, fail)
-import Data.Number as Number
-import Data.String as String
-import Data.String.Yarn as String
-import Data.Array as Array
-import Control.Monad.Eff.Unsafe (unsafePerformEff)
+import Data.String (length) as String
+import Data.String.Yarn (fromChars) as String
 import Test.QuickCheck (class Arbitrary, arbitrary)
 import Test.QuickCheck.Gen (arrayOf1, arrayOf, elements)
 import Partial.Unsafe (unsafePartial)
