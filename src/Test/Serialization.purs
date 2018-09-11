@@ -7,8 +7,7 @@ import Test.Serialization.Types
   , HasServerG (..), getTopicState
   , generateValue, gotServerGenValue, gotServerSerialize, gotServerDeSerialize
   , deserializeValueServerOrigin, serializeValueServerOrigin, verify
-  , getTopicState
-  , toHexString, toUtf8String
+  , toUtf8String
   )
 
 import Prelude
@@ -19,7 +18,7 @@ import Data.URI.URI as URI
 import Data.Map as Map
 import Data.Set (Set)
 import Data.Set as Set
-import Data.Argonaut (class EncodeJson, encodeJson, decodeJson, jsonParser)
+import Data.Argonaut (encodeJson, decodeJson, jsonParser)
 import Data.Foldable (for_)
 import Data.UUID (GENUUID, genUUID)
 import Data.Exists (Exists, runExists)
@@ -27,21 +26,19 @@ import Data.NonEmpty (NonEmpty (..))
 import Data.Generic (gShow)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.Rec.Class (forever)
-import Control.Monad.Aff (Aff, runAff_, forkAff, Fiber, killFiber)
+import Control.Monad.Aff (Aff, runAff_, forkAff)
 import Control.Monad.Eff (Eff, kind Effect)
 import Control.Monad.Eff.Class (liftEff)
 import Control.Monad.Eff.Console (CONSOLE, log, warn)
 import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef, modifyRef)
-import Control.Monad.Eff.Exception (EXCEPTION, throwException, throw, error)
+import Control.Monad.Eff.Exception (EXCEPTION, throwException, throw)
 import Control.Monad.Eff.Random (RANDOM)
-import Node.Buffer (fromString) as Buffer
-import Node.Encoding (Encoding (UTF8)) as Buffer
 import ZeroMQ
-  ( ZEROMQ, socket, router, dealer, connect, sendMany, sendJson, readMany, readJson', setOption, zmqIdentity
-  , close, Socket, Router, Dealer, Connected)
+  ( ZEROMQ, socket, router, dealer, connect, sendMany, readMany, readJson'
+  , setOption, zmqIdentity, close, Socket, Router, Dealer, Connected)
 import Node.Buffer (BUFFER, Buffer)
-import Node.Buffer as Buffer
-import Node.Encoding as Buffer
+import Node.Buffer (fromString, toString) as Buffer
+import Node.Encoding (Encoding (UTF8)) as Buffer
 
 
 

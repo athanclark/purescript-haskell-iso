@@ -15,8 +15,6 @@ import Data.Generic (class Generic, gShow, gEq, gCompare)
 import Data.NonEmpty (NonEmpty (..))
 import Data.String.Yarn as String
 import Data.Exists (Exists, mkExists, runExists)
-import Data.These (These (..))
-import Data.Bifunctor (bimap)
 import Type.Proxy (Proxy (..))
 import Control.Alternative ((<|>))
 import Control.Monad.Reader (ReaderT, ask)
@@ -28,7 +26,6 @@ import Control.Monad.Eff.Random (RANDOM)
 import Test.QuickCheck (class Arbitrary, arbitrary)
 import Test.QuickCheck.Gen (Gen, unGen, oneOf, arrayOf1, elements)
 import Test.QuickCheck.LCG (randomSeed)
-import Unsafe.Coerce (unsafeCoerce)
 import Node.Buffer (Buffer)
 
 
@@ -162,7 +159,7 @@ instance eqServerToClient :: Eq ServerToClient where
 
 instance arbitraryServerToClient :: Arbitrary ServerToClient where
   arbitrary = oneOf $ NonEmpty
-    (TopicsAvailable <<< (Set.fromFoldable :: Array _ -> _) <$> arbitrary)
+    (TopicsAvailable <<< (Set.fromFoldable :: Array TestTopic -> Set TestTopic) <$> arbitrary)
     [ ServerToClient <$> arbitrary <*> arbitrary <*> arbitraryJson
     , ServerToClientBadParse <$> arbitraryNonEmptyText
     , Continue <$> arbitrary
@@ -173,7 +170,7 @@ instance arbitraryServerToClient :: Arbitrary ServerToClient where
 
 instance encodeJsonServerToClient :: EncodeJson ServerToClient where
   encodeJson x = case x of
-    TopicsAvailable y -> "topics" := (Set.toUnfoldable y :: Array _) ~> jsonEmptyObject
+    TopicsAvailable y -> "topics" := (Set.toUnfoldable y :: Array TestTopic) ~> jsonEmptyObject
     ServerToClient t m y -> "topic" := t ~> "msgType" := m ~> "value" := y ~> jsonEmptyObject
     ServerToClientBadParse y -> "badParse" := y ~> jsonEmptyObject
     Continue y -> "continue" := y ~> jsonEmptyObject
@@ -183,7 +180,7 @@ instance decodeJsonServerToClient :: DecodeJson ServerToClient where
     o <- decodeJson json
     let msg = ServerToClient <$> o .? "topic" <*> o .? "msgType" <*> o .? "value"
         bad = ServerToClientBadParse <$> o .? "badParse"
-        top = TopicsAvailable <<< (Set.fromFoldable :: Array _ -> _) <$> o .? "topics"
+        top = TopicsAvailable <<< (Set.fromFoldable :: Array TestTopic -> Set TestTopic) <$> o .? "topics"
         con = Continue <$> o .? "continue"
     msg <|> bad <|> top <|> con
 
@@ -738,7 +735,7 @@ verify ex =
                 Just serverD' -> map HasServerD $ do
                   case deserialize clientS' of
                     Left e -> pure (CantDes e)
-                    Right clientS'' -> 
+                    Right clientS'' ->
                       if not (eq clientS'' serverD')
                         then do
                           let serverD'' = serialize serverD'
