@@ -5,7 +5,7 @@ import Data.BigNumber (BigNumber, parseBigNumber, toExponential)
 import Data.Either (Either (..))
 import Data.NonEmpty (NonEmpty (..))
 import Data.Enum (enumFromTo)
-import Data.Generic (class Generic)
+import Data.Generic.Rep (class Generic)
 import Data.Argonaut (class EncodeJson, class DecodeJson, encodeJson, decodeJson, fail)
 import Data.String (length) as String
 import Data.String.Yarn (fromChars) as String
@@ -15,7 +15,7 @@ import Partial.Unsafe (unsafePartial)
 
 
 newtype JSONScientific = JSONScientific BigNumber
-derive instance genericJSONScientific :: Generic JSONScientific
+derive instance genericJSONScientific :: Generic JSONScientific _
 derive newtype instance eqJSONScientific :: Eq JSONScientific
 derive newtype instance showJSONScientific :: Show JSONScientific
 

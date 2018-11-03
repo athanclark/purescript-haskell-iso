@@ -3,7 +3,9 @@ module Data.Argonaut.JSONEither where
 
 import Prelude
 import Data.NonEmpty (NonEmpty (..))
-import Data.Generic (class Generic, gEq, gShow)
+import Data.Generic.Rep (class Generic)
+import Data.Generic.Rep.Eq (genericEq)
+import Data.Generic.Rep.Show (genericShow)
 import Data.Argonaut (class EncodeJson, class DecodeJson, decodeJson, (~>), jsonEmptyObject, (:=), (.?))
 import Control.Alternative ((<|>))
 import Test.QuickCheck (class Arbitrary, arbitrary)
@@ -14,13 +16,11 @@ data JSONEither a b
   = JSONLeft a
   | JSONRight b
 
-derive instance genericJSONEither :: (Generic a, Generic b) => Generic (JSONEither a b)
-
-instance eqJSONEither :: (Generic a, Generic b) => Eq (JSONEither a b) where
-  eq = gEq
-
-instance showJSONEither :: (Generic a, Generic b) => Show (JSONEither a b) where
-  show = gShow
+derive instance genericJSONEither :: (Generic a rep1, Generic b rep2) => Generic (JSONEither a b) _
+instance eqJSONEither :: (Eq a, Eq b, Generic a rep1, Generic b rep2) => Eq (JSONEither a b) where
+  eq = genericEq
+instance showJSONEither :: (Show a, Show b, Generic a rep1, Generic b rep2) => Show (JSONEither a b) where
+  show = genericShow
 
 instance arbitraryJSONEither :: (Arbitrary a, Arbitrary b) => Arbitrary (JSONEither a b) where
   arbitrary = oneOf $ NonEmpty

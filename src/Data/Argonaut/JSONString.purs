@@ -3,14 +3,14 @@ module Data.Argonaut.JSONString
 
 import Prelude
 
-import Data.Generic (class Generic)
+import Data.Generic.Rep (class Generic)
 import Data.Argonaut (class EncodeJson, class DecodeJson)
 import Test.QuickCheck (class Arbitrary)
 
 
 newtype JSONString = JSONString String
 
-derive instance genericJSONString :: Generic JSONString
+derive instance genericJSONString :: Generic JSONString _
 derive newtype instance showJSONString :: Show JSONString
 derive newtype instance eqJSONString :: Eq JSONString
 derive newtype instance ordJSONString :: Ord JSONString

@@ -6,14 +6,14 @@ import Text.Email.Validate as Email
 import Prelude
 import Data.Maybe (Maybe (..))
 import Data.String.Yarn as String
-import Data.Generic (class Generic)
+import Data.Generic.Rep (class Generic)
 import Data.Argonaut (class EncodeJson, class DecodeJson, encodeJson, decodeJson, fail)
 import Data.Typelevel.Undefined (undefined)
 import Data.NonEmpty (NonEmpty (..))
 import Data.Enum (enumFromTo)
 import Data.List.Lazy (replicateM)
-import Control.Monad.Eff.Unsafe (unsafePerformEff)
-import Control.Monad.Eff.Console (log)
+import Effect.Unsafe (unsafePerformEffect)
+import Effect.Console (log)
 import Test.QuickCheck (class Arbitrary)
 import Test.QuickCheck.Gen (Gen, elements, sized, resize, chooseInt)
 import Partial.Unsafe (unsafePartial)
@@ -22,8 +22,7 @@ import Partial.Unsafe (unsafePartial)
 -- FIXME restrict to 64 x 63 chars
 
 newtype JSONEmailAddress = JSONEmailAddress EmailAddress
-
-derive instance genericJSONEmailAddress :: Generic JSONEmailAddress
+derive instance genericJSONEmailAddress :: Generic JSONEmailAddress _
 derive newtype instance eqJSONEmailAddress :: Eq JSONEmailAddress
 
 instance encodeJsonJSONEmailAddress :: EncodeJson JSONEmailAddress where
@@ -50,7 +49,7 @@ instance arbitraryJSONEmailAddress :: Arbitrary JSONEmailAddress where
     let x = name <> "@" <> domain <> ".com"
     unsafePartial $ case Email.emailAddress x of
       Just e -> pure (JSONEmailAddress e)
-      Nothing -> unsafePerformEff $ undefined <$ log x
+      Nothing -> unsafePerformEffect $ undefined <$ log x
     where
       arbitraryNonEmptyAscii maxS = do
         l <- chooseInt 1 maxS

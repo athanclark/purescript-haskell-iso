@@ -7,30 +7,24 @@
     "output"
   ],
   "dependencies": {
-    "purescript-prelude": "^3.1.1",
-    "purescript-quickcheck": "^4.6.2",
-    "purescript-now": "3.x",
-    "purescript-string-parsers": "^3.1.0",
-    "purescript-js-date": "^4.0.0",
-    "purescript-zeromq": "git@github.com:athanclark/purescript-zeromq.git#61c6be4ec5097b6e932ac8cc89e8f5556efaf0dc",
-    "purescript-bignumber": "git@github.com:athanclark/purescript-bignumber.git#19a8737eacdffa821b4aecad1fb82407dac40c5e",
-    "purescript-uuid": "^4.0.0",
-    "purescript-unorm": "^0.0.0",
-    "purescript-these": "^3.0.0",
-    "purescript-numbers": "^5.0.0",
-    "purescript-email-validate": "^2.0.0",
-    "purescript-typelevel": "^3.0.0",
-    "purescript-sets": "git@git.localcooking.com:private-tooling/purescript-sets.git#3b5eee2df36d7bebc5816210b684bc35c1f94434",
-    "purescript-uri": "git@git.localcooking.com:private-tooling/purescript-uri.git#0647b672c505514581399e5c47aa7ef2b7b73404",
-    "purescript-argonaut": "git@git.localcooking.com:private-tooling/purescript-argonaut.git#17bc7ec185b5424a6e380332fa9aec23b7536327"
+    "purescript-prelude": "^4.1.0",
+    "purescript-quickcheck": "^5.0.0",
+    "purescript-now": "^4.0.0",
+    "purescript-string-parsers": "^5.0.0",
+    "purescript-js-date": "^6.0.0",
+    "purescript-zeromq": "^0.0.5",
+    "purescript-bignumber": "^1.0.0",
+    "purescript-uuid": "^5.0.0",
+    "purescript-unorm": "^1.0.0",
+    "purescript-numbers": "^6.0.0",
+    "purescript-yarn": "^4.0.0",
+    "purescript-email-validate": "^4.0.0",
+    "purescript-typelevel": "^4.0.0",
+    "purescript-ordered-collections": "^1.4.0",
+    "purescript-uri": "^6.0.0",
+    "purescript-argonaut": "4.0.1"
   },
   "devDependencies": {
-    "purescript-psci-support": "^3.0.0"
-  },
-  "resolutions": {
-    "purescript-argonaut": "17bc7ec185b5424a6e380332fa9aec23b7536327",
-    "purescript-argonaut-core": "ac91a6b69ecc05ee9c6c4377d34f5b5931086ead",
-    "purescript-maps": "78a14ce7704db3f25e7494376787f619a33c9783",
-    "purescript-sets": "3b5eee2df36d7bebc5816210b684bc35c1f94434"
+    "purescript-psci-support": "^4.0.0"
   }
 }
