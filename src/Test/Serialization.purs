@@ -15,9 +15,11 @@ import Data.Maybe (Maybe (..))
 import Data.Either (Either (..))
 import URI
   ( AbsoluteURI (..), HierarchicalPart (HierarchicalPartAuth), Authority
-  , UserInfo, Host, PathAbsolute (..), Query, HierPath)
+  , UserInfo, Host, Path (..), Query, HierPath, Port)
+import URI.HostPortPair (HostPortPair)
+import URI.HostPortPair as HostPortPair
+import URI.AbsoluteURI as AbsoluteURI
 import URI.Scheme as Scheme
--- import Data.URI.URI as URI
 import Data.Map as Map
 import Data.Set (Set)
 import Data.Set as Set
@@ -28,13 +30,6 @@ import Data.Exists (Exists, runExists)
 import Data.NonEmpty (NonEmpty (..))
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.Rec.Class (forever)
--- import Control.Monad.Aff (Aff, runAff_, forkAff)
--- import Control.Monad.Eff (Eff, kind Effect)
--- import Control.Monad.Eff.Class (liftEff)
--- import Control.Monad.Eff.Console (CONSOLE, log, warn)
--- import Control.Monad.Eff.Ref (REF, Ref, Ref.new, Ref.read, Ref.write, Ref.modify)
--- import Control.Monad.Eff.Exception (EXCEPTION, throwException, throw)
--- import Control.Monad.Eff.Random (RANDOM)
 import Effect (Effect)
 import Effect.Aff (Aff, runAff_, forkAff)
 import Effect.Class (liftEffect)
@@ -53,23 +48,29 @@ import Node.Encoding (Encoding (UTF8)) as Buffer
 
 
 type ClientParams =
-  { controlHost :: Authority UserInfo Host
+  { controlHost :: Authority UserInfo (HostPortPair Host Port)
   , testSuite :: TestSuiteM Unit
   , maxSize :: Int
   }
 
 
 
-startClient :: ClientParams
-            -> Effect Unit
+startClient :: ClientParams -> Effect Unit
 startClient {controlHost,testSuite,maxSize} = do
   client <- socket dealer router
-  connect client $ show $
-    let uri :: AbsoluteURI UserInfo Host PathAbsolute HierPath Query
+  let opts =
+        { printUserInfo: identity
+        , printHosts: HostPortPair.print identity identity
+        , printPath: identity
+        , printHierPath: identity
+        , printQuery: identity
+        }
+  connect client $ AbsoluteURI.print opts $
+    let uri :: AbsoluteURI UserInfo (HostPortPair Host Port) Path HierPath Query
         uri =
           AbsoluteURI
             (Scheme.unsafeFromString "tcp")
-            (HierarchicalPartAuth controlHost (PathAbsolute Nothing)) Nothing
+            (HierarchicalPartAuth controlHost (Path [])) Nothing
     in  uri
   ident <- genUUID >>= \x -> Buffer.fromString (show x) Buffer.UTF8
   setOption client zmqIdentity ident

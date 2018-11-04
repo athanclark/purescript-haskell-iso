@@ -3,6 +3,7 @@ module Test.Serialization.Types where
 import Prelude
 import Data.Maybe (Maybe (..))
 import Data.Either (Either (..))
+import Data.Tuple (Tuple (..))
 import Data.Argonaut
   ( Json, class EncodeJson, class DecodeJson, decodeJson, encodeJson
   , (.?), (:=), (~>), jsonEmptyObject, fail)
@@ -23,11 +24,8 @@ import Type.Proxy (Proxy (..))
 import Control.Alternative ((<|>))
 import Control.Monad.Reader (ReaderT, ask)
 import Control.Monad.State (evalState)
--- import Control.Monad.Eff (Eff)
--- import Control.Monad.Eff.Class (liftEff)
--- import Control.Monad.Eff.Ref (REF, Ref, Ref.new, Ref.read, Ref.write, Ref.modify)
--- import Control.Monad.Eff.Random (RANDOM)
 import Effect (Effect)
+import Effect.Unsafe (unsafePerformEffect)
 import Effect.Class (liftEffect)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
@@ -35,6 +33,8 @@ import Test.QuickCheck (class Arbitrary, arbitrary)
 import Test.QuickCheck.Gen (Gen, unGen, oneOf, arrayOf1, elements)
 import Random.LCG (randomSeed)
 import Node.Buffer (Buffer)
+import Node.Buffer as Buffer
+import Node.Encoding as Buffer
 
 
 
@@ -428,11 +428,16 @@ instance isOkayHasClientS :: IsOkay a => IsOkay (HasClientS a) where
 newtype ShowableJson = ShowableJson Json
 
 derive instance genericShowableJson :: Generic ShowableJson _
-derive newtype instance eqShowableJson :: Eq ShowableJson
+instance eqShowableJson :: Eq ShowableJson where
+  eq (ShowableJson a) (ShowableJson b) =
+    case Tuple <$> Argonaut.toString a <*> Argonaut.toString b of
+      Nothing -> a == b
+      Just (Tuple a' b') ->
+        let a'' = unsafePerformEffect (Buffer.toArray =<< Buffer.fromString a' Buffer.UTF8)
+            b'' = unsafePerformEffect (Buffer.toArray =<< Buffer.fromString b' Buffer.UTF8)
+        in  a'' == b''
 instance showShowableJson :: Show ShowableJson where
-  show (ShowableJson x) = case Argonaut.toString x of
-    Nothing -> "bad json"
-    Just y -> y
+  show (ShowableJson x) = Argonaut.stringify x
 instance encodeJsonShowableJson :: EncodeJson ShowableJson where
   encodeJson (ShowableJson x) = x
 instance decodeJsonShowableJson :: DecodeJson ShowableJson where
@@ -618,8 +623,7 @@ gotServerDeSerialize ex value =
   in  runExists go ex
 
 
-verify :: forall eff
-        . Exists TestTopicState
+verify :: Exists TestTopicState
        -> Effect
           ( HasClientG
             ( HasServerS
@@ -661,7 +665,7 @@ verify ex =
                     Nothing -> pure NoServerS
                     Just serverS' -> map HasServerS $ do
                       let clientG'' = serialize clientG'
-                      if  clientG'' /= serverS'
+                      if  ShowableJson clientG'' /= ShowableJson serverS'
                         then pure $ ClientSerializedMismatch
                               { clientG: ShowableJson clientG''
                               , serverS: ShowableJson serverS'
@@ -709,7 +713,7 @@ verify ex =
                     Nothing -> pure NoClientS
                     Just clientS' -> map HasClientS $ do
                       let serverG'' = serialize serverG'
-                      if  serverG'' /= clientS'
+                      if  ShowableJson serverG'' /= ShowableJson clientS'
                         then pure $ ServerSerializedMismatch
                                 { serverG: ShowableJson serverG''
                                 , clientS: ShowableJson clientS'

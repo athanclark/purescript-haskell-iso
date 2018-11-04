@@ -18,32 +18,44 @@ import Data.Argonaut.JSONScientific (JSONScientific)
 import Prelude
 import Data.Maybe (Maybe (..))
 import Data.Either (Either (..))
+import Data.These (These (..))
 import Data.Tuple (Tuple (..))
-import Data.URI (Authority (..), Host (NameAddress), Port (..))
+import Data.String.NonEmpty as String
+import URI (Authority (..), Host (NameAddress), UserInfo)
+import URI.HostPortPair (HostPortPair)
+import URI.Host.RegName as RegName
+import URI.Port as Port
 import Data.Argonaut (class EncodeJson, class DecodeJson, encodeJson, decodeJson)
 import Type.Proxy (Proxy (..))
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Console (CONSOLE, log)
-import Control.Monad.Eff.Ref (REF)
+-- import Control.Monad.Eff (Eff)
+-- import Control.Monad.Eff.Console (CONSOLE, log)
+-- import Control.Monad.Eff.Ref (REF)
+import Effect (Effect)
+import Effect.Console (log)
 import Test.QuickCheck (quickCheck, Result (..))
+import Partial.Unsafe (unsafePartial)
 
 
 
 
-main :: Eff _ Unit
+main :: Effect Unit
 main = do
   log "Starting tests..."
   -- quickCheck (jsonIso :: JSONEither JSONString JSONString -> _)
   startClient
-    { controlHost: Authority Nothing [Tuple (NameAddress "localhost") (Just (Port 5561))]
+    { controlHost:
+      let uri :: Authority UserInfo (HostPortPair Host Port.Port)
+          uri = Authority Nothing $ Just $ Both
+                (NameAddress $ RegName.unsafeFromString $ unsafePartial $ String.unsafeFromString "127.0.0.1")
+                (Port.unsafeFromInt 5561)
+      in  uri
     , testSuite: tests
     , maxSize: 200
     }
 
 
 
-tests :: forall eff
-       . TestSuiteM (ref :: REF | eff) Unit
+tests :: TestSuiteM Unit
 tests = do
   registerTopic (TestTopic "TestTopic") (Proxy :: Proxy TestTopic)
   registerTopic (TestTopic "MsgType") (Proxy :: Proxy MsgType)

@@ -13,7 +13,6 @@ data JSONUnit = JSONUnit
 derive instance genericJSONUnit :: Generic JSONUnit _
 instance eqJSONUnit :: Eq JSONUnit where
   eq = genericEq
-
 instance showJSONUnit :: Show JSONUnit where
   show = genericShow
 
