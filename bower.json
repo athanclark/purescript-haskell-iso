@@ -6,6 +6,10 @@
     "bower_components",
     "output"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/athanclark/purescript-haskell-iso.git"
+  },
   "dependencies": {
     "purescript-prelude": "^4.1.0",
     "purescript-quickcheck": "^5.0.0",
@@ -24,6 +28,7 @@
     "purescript-uri": "^6.0.0",
     "purescript-argonaut": "4.0.1"
   },
+  "license": "BSD-3-Clause",
   "devDependencies": {
     "purescript-psci-support": "^4.0.0"
   }
