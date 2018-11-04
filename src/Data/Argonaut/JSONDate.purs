@@ -5,7 +5,6 @@ import Data.Int as Int
 import Data.JSDate as JSDate
 import Data.Date (Date)
 import Data.Date as Date
--- import Data.DateTime.Locale (LocalValue (..))
 import Data.Maybe (Maybe (..))
 import Data.Either (Either (..))
 import Data.Enum (fromEnum)

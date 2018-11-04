@@ -36,6 +36,3 @@ instance arbitraryJSONScientific :: Arbitrary JSONScientific where
     p <- String.fromChars <$> arrayOf (elements $ NonEmpty '0' $ enumFromTo '1' '9')
     unsafePartial $ case parseBigNumber ((if n then "-" else "") <> s <> (if String.length p == 0 then "" else "." <> p)) of
       Right x -> pure (JSONScientific x)
-    -- (x :: Number) <- arbitrary
-    -- unsafePartial $ case Number.fromString $ trimDecimal $ show x of
-    --   Just y -> pure (JSONScientific y)

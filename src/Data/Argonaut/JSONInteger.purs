@@ -8,7 +8,6 @@ import Data.Enum (enumFromTo)
 import Data.Generic.Rep (class Generic)
 import Data.Argonaut (class EncodeJson, class DecodeJson, encodeJson, decodeJson, fail)
 import Data.String.Yarn as String
-import Data.Array as Array
 import Test.QuickCheck (class Arbitrary, arbitrary)
 import Test.QuickCheck.Gen (arrayOf1, elements)
 import Partial.Unsafe (unsafePartial)
@@ -35,10 +34,3 @@ instance arbitraryJSONInteger :: Arbitrary JSONInteger where
     s <- String.fromChars <$> arrayOf1 (elements $ NonEmpty '0' $ enumFromTo '1' '9')
     unsafePartial $ case parseBigNumber ((if n then "-" else "") <> s) of
       Right x -> pure (JSONInteger x)
-    -- (x :: Number) <- arbitrary
-    -- unsafePartial $ case Number.fromString $ trimDecimal $ show x of
-    --   Just y -> pure (JSONInteger y)
-
-
-trimDecimal :: String -> String
-trimDecimal = String.fromChars <<< Array.takeWhile (\c -> c /= '.') <<< String.toChars

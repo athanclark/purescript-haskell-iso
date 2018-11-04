@@ -1,5 +1,4 @@
-module Data.Argonaut.JSONString
-  (JSONString (..), getJSONString) where
+module Data.Argonaut.JSONString where
 
 import Prelude
 

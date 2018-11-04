@@ -33,8 +33,8 @@ import Test.QuickCheck (class Arbitrary, arbitrary)
 import Test.QuickCheck.Gen (Gen, unGen, oneOf, arrayOf1, elements)
 import Random.LCG (randomSeed)
 import Node.Buffer (Buffer)
-import Node.Buffer as Buffer
-import Node.Encoding as Buffer
+import Node.Buffer (fromString, toArray) as Buffer
+import Node.Encoding (Encoding (UTF8)) as Buffer
 
 
 
@@ -638,7 +638,7 @@ verify :: Exists TestTopicState
                               ( DesValue
                                 ( ServerDeSerializedMatch JSONUnit))))))))))))
 verify ex =
-  let go :: forall a. TestTopicState a -> Effect _
+  let go :: forall a. TestTopicState a -> Effect (HasClientG (HasServerS (ClientSerializedMatch (HasClientD (DesValue (ClientDeSerializedMatch (HasServerG (HasClientS (ServerSerializedMatch (HasServerD (DesValue (ServerDeSerializedMatch JSONUnit))))))))))))
       go (TestTopicState
         { serialize
         , deserialize
@@ -650,11 +650,12 @@ verify ex =
         , clientS
         , serverD
         }) = do
-        let clientSMatch :: (Json -> Effect _)
+        let clientSMatch :: forall b
+                          . (Json -> Effect b)
                          -> Effect
                             (HasClientG
                               (HasServerS
-                                (ClientSerializedMatch _)))
+                                (ClientSerializedMatch b)))
             clientSMatch x = do
               mClientG <- Ref.read clientG
               case mClientG of
@@ -674,11 +675,12 @@ verify ex =
                               }
                         else ClientSerializedMatch <$> x serverS'
 
-            clientDMatch :: Effect _ -> Json
+            clientDMatch :: forall b
+                          . Effect b -> Json
                          -> Effect
                             (HasClientD
                               (DesValue
-                                (ClientDeSerializedMatch _)))
+                                (ClientDeSerializedMatch b)))
             clientDMatch x serverS' = do
               mClientD <- Ref.read clientD
               case mClientD of
@@ -698,11 +700,12 @@ verify ex =
                             }
                         else (DesValue <<< ClientDeSerializedMatch) <$> x
 
-            serverSMatch :: (Json -> Effect _)
+            serverSMatch :: forall b
+                          . (Json -> Effect b)
                          -> Effect
                             (HasServerG
                               (HasClientS
-                                (ServerSerializedMatch _)))
+                                (ServerSerializedMatch b)))
             serverSMatch x = do
               mServerG <- Ref.read serverG
               case mServerG of

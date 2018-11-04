@@ -40,10 +40,6 @@ instance showJSONEmailAddress :: Show JSONEmailAddress where
 
 instance arbitraryJSONEmailAddress :: Arbitrary JSONEmailAddress where
   arbitrary = do
-    -- let isChar c =
-    --       let r = unsafePartial $ case regex "\\s|\\c" noFlags of
-    --                 Right x -> x
-    --       in  not $ test r $ String.fromChars [c]
     name <- arbitraryNonEmptyAscii 64
     domain <- arbitraryNonEmptyAscii 63
     let x = name <> "@" <> domain <> ".com"
