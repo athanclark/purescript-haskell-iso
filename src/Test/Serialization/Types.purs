@@ -20,6 +20,8 @@ import Data.Generic.Rep.Eq (genericEq)
 import Data.NonEmpty (NonEmpty (..))
 import Data.String.Yarn as String
 import Data.Exists (Exists, mkExists, runExists)
+import Foreign.Object as Object
+import Data.Array as Array
 import Type.Proxy (Proxy (..))
 import Control.Alternative ((<|>))
 import Control.Monad.Reader (ReaderT, ask)
@@ -431,7 +433,30 @@ derive instance genericShowableJson :: Generic ShowableJson _
 instance eqShowableJson :: Eq ShowableJson where
   eq (ShowableJson a) (ShowableJson b) =
     case Tuple <$> Argonaut.toString a <*> Argonaut.toString b of
-      Nothing -> a == b
+      Nothing ->
+        let asObjects = (\a' b' -> Left $ Tuple a' b') <$> Argonaut.toObject a <*> Argonaut.toObject b
+            asArrays = (\a' b' -> Right $ Tuple a' b') <$> Argonaut.toArray a <*> Argonaut.toArray b
+        in  case asObjects <|> asArrays of
+              Nothing -> a == b
+              Just eOA -> case eOA of
+                Left (Tuple ao bo) ->
+                  let ao' = Object.toAscUnfoldable ao
+                      bo' = Object.toAscUnfoldable bo
+                  in  if Array.length ao' == Array.length bo'
+                        then let zss = Array.zipWith
+                                        (\(Tuple k1 a') (Tuple k2 b') -> k1 == k2 && eq a' b')
+                                        ao' bo'
+                             in  case Array.uncons zss of
+                                   Nothing -> true
+                                   Just {head,tail} -> Array.all (eq head) tail
+                        else false
+                Right (Tuple aa ba) ->
+                  if Array.length aa == Array.length ba
+                    then let zss = Array.zipWith eq aa ba
+                         in  case Array.uncons zss of
+                               Nothing -> true
+                               Just {head,tail} -> Array.all (eq head) tail
+                    else false
       Just (Tuple a' b') ->
         let a'' = unsafePerformEffect (Buffer.toArray =<< Buffer.fromString a' Buffer.UTF8)
             b'' = unsafePerformEffect (Buffer.toArray =<< Buffer.fromString b' Buffer.UTF8)
