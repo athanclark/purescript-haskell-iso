@@ -20,8 +20,9 @@ import Data.Generic.Rep.Eq (genericEq)
 import Data.NonEmpty (NonEmpty (..))
 import Data.String.Yarn as String
 import Data.Exists (Exists, mkExists, runExists)
-import Foreign.Object as Object
 import Data.Array as Array
+import Data.Maybe.First (First (..))
+import Foreign.Object as Object
 import Type.Proxy (Proxy (..))
 import Control.Alternative ((<|>))
 import Control.Monad.Reader (ReaderT, ask)
@@ -427,40 +428,72 @@ instance isOkayHasClientS :: IsOkay a => IsOkay (HasClientS a) where
     HasClientS y -> isOkay y
 
 
+data JsonDiffBuffer
+  = DiffBuffers Buffer Buffer
+  | DiffBuffers' (Array Int) (Array Int)
+  | DiffArrays (Array ShowableJson) (Array ShowableJson)
+  | DiffObjectFields (Tuple String String) (Maybe JsonDiffBuffer)
+  | DiffObjects (Array (Tuple String ShowableJson)) (Array (Tuple String ShowableJson))
+
+derive instance genericJsonDiffbuffer :: Generic JsonDiffBuffer _
+instance showJsonDiffBuffer :: Show JsonDiffBuffer where
+  show = go
+    where
+      go x = case x of
+        DiffBuffers a b -> "DiffBuffers " <> show a <> " " <> show b
+        DiffBuffers' a b -> "DiffBuffers' " <> show a <> " " <> show b
+        DiffArrays a b -> "DiffArrays " <> show a <> " " <> show b
+        DiffObjectFields ks mx' -> "DiffObjectFields " <> show ks <> " " <> show (go <$> mx')
+        DiffObjects a b -> "DiffObjects " <> show a <> " " <> show b
+
+
+diffJson :: Json -> Json -> Maybe JsonDiffBuffer
+diffJson a b =
+  case Tuple <$> Argonaut.toString a <*> Argonaut.toString b of
+    Nothing ->
+      let asObjects = (\a' b' -> Left $ Tuple a' b') <$> Argonaut.toObject a <*> Argonaut.toObject b
+          asArrays = (\a' b' -> Right $ Tuple a' b') <$> Argonaut.toArray a <*> Argonaut.toArray b
+      in  case asObjects <|> asArrays of
+            Nothing
+              | a == b -> Nothing
+              | otherwise ->
+                let viaShow = fromUtf8String <<< show <<< ShowableJson
+                in  Just $ DiffBuffers (viaShow a) (viaShow b)
+            Just eOA -> case eOA of
+              Left (Tuple ao bo) ->
+                let ao' = Object.toAscUnfoldable ao
+                    bo' = Object.toAscUnfoldable bo
+                in  if Array.length ao' == Array.length bo'
+                      then let go :: Tuple String Json -> Tuple String Json -> Maybe JsonDiffBuffer
+                               go (Tuple k1 a') (Tuple k2 b')
+                                 | k1 == k2 = diffJson a' b'
+                                 | otherwise = Just $ DiffObjectFields (Tuple k1 k2) (diffJson a' b')
+                               zss = Array.zipWith go ao' bo'
+                           in  (\(First x) -> x) $ Array.foldMap First zss
+                      else let toShowable (Tuple k x) = Tuple k (ShowableJson x)
+                           in  Just $ DiffObjects (map toShowable ao') (map toShowable bo')
+              Right (Tuple aa ba) ->
+                if Array.length aa == Array.length ba
+                  then let zss = Array.zipWith diffJson aa ba
+                       in  (\(First x) -> x) $ Array.foldMap First zss
+                  else Just (DiffArrays (map ShowableJson aa) (map ShowableJson ba))
+    Just (Tuple a' b') ->
+      let a'' = unsafePerformEffect (Buffer.toArray =<< Buffer.fromString a' Buffer.UTF8)
+          b'' = unsafePerformEffect (Buffer.toArray =<< Buffer.fromString b' Buffer.UTF8)
+      in  if a'' == b''
+             then Nothing
+             else Just (DiffBuffers' a'' b'')
+
+
 newtype ShowableJson = ShowableJson Json
+
 
 derive instance genericShowableJson :: Generic ShowableJson _
 instance eqShowableJson :: Eq ShowableJson where
   eq (ShowableJson a) (ShowableJson b) =
-    case Tuple <$> Argonaut.toString a <*> Argonaut.toString b of
-      Nothing ->
-        let asObjects = (\a' b' -> Left $ Tuple a' b') <$> Argonaut.toObject a <*> Argonaut.toObject b
-            asArrays = (\a' b' -> Right $ Tuple a' b') <$> Argonaut.toArray a <*> Argonaut.toArray b
-        in  case asObjects <|> asArrays of
-              Nothing -> a == b
-              Just eOA -> case eOA of
-                Left (Tuple ao bo) ->
-                  let ao' = Object.toAscUnfoldable ao
-                      bo' = Object.toAscUnfoldable bo
-                  in  if Array.length ao' == Array.length bo'
-                        then let zss = Array.zipWith
-                                        (\(Tuple k1 a') (Tuple k2 b') -> k1 == k2 && eq a' b')
-                                        ao' bo'
-                             in  case Array.uncons zss of
-                                   Nothing -> true
-                                   Just {head,tail} -> Array.all (eq head) tail
-                        else false
-                Right (Tuple aa ba) ->
-                  if Array.length aa == Array.length ba
-                    then let zss = Array.zipWith eq aa ba
-                         in  case Array.uncons zss of
-                               Nothing -> true
-                               Just {head,tail} -> Array.all (eq head) tail
-                    else false
-      Just (Tuple a' b') ->
-        let a'' = unsafePerformEffect (Buffer.toArray =<< Buffer.fromString a' Buffer.UTF8)
-            b'' = unsafePerformEffect (Buffer.toArray =<< Buffer.fromString b' Buffer.UTF8)
-        in  a'' == b''
+    case diffJson a b of
+      Nothing -> true
+      Just _ -> false
 instance showShowableJson :: Show ShowableJson where
   show (ShowableJson x) = Argonaut.stringify x
 instance encodeJsonShowableJson :: EncodeJson ShowableJson where
@@ -476,6 +509,7 @@ data ServerSerializedMatch a
     , clientS :: ShowableJson
     , serverGReceived :: Buffer
     , clientSSent :: Buffer
+    , diff :: JsonDiffBuffer
     }
 
 derive instance genericServerSerializedMatch :: Generic a rep => Generic (ServerSerializedMatch a) _
@@ -514,6 +548,7 @@ data ClientSerializedMatch a
     , serverS :: ShowableJson
     , clientGSent :: Buffer
     , serverSReceived :: Buffer
+    , diff :: JsonDiffBuffer
     }
 
 derive instance genericClientSerializedMatch :: Generic a rep => Generic (ClientSerializedMatch a) _
@@ -689,16 +724,18 @@ verify ex =
                   mServerS <- Ref.read serverS
                   case mServerS of
                     Nothing -> pure NoServerS
-                    Just serverS' -> map HasServerS $ do
+                    Just serverS' -> map HasServerS $
                       let clientG'' = serialize clientG'
-                      if  ShowableJson clientG'' /= ShowableJson serverS'
-                        then pure $ ClientSerializedMismatch
-                              { clientG: ShowableJson clientG''
-                              , serverS: ShowableJson serverS'
-                              , clientGSent: fromUtf8String $ show $ ShowableJson clientG''
-                              , serverSReceived: fromUtf8String $ show $ ShowableJson serverS'
-                              }
-                        else ClientSerializedMatch <$> x serverS'
+                      in  case diffJson clientG'' serverS' of
+                        Just diff ->
+                          pure $ ClientSerializedMismatch
+                            { clientG: ShowableJson clientG''
+                            , serverS: ShowableJson serverS'
+                            , clientGSent: fromUtf8String $ show $ ShowableJson clientG''
+                            , serverSReceived: fromUtf8String $ show $ ShowableJson serverS'
+                            , diff
+                            }
+                        Nothing -> ClientSerializedMatch <$> x serverS'
 
             clientDMatch :: forall b
                           . Effect b -> Json
@@ -739,16 +776,18 @@ verify ex =
                   mClientS <- Ref.read clientS
                   case mClientS of
                     Nothing -> pure NoClientS
-                    Just clientS' -> map HasClientS $ do
+                    Just clientS' -> map HasClientS $
                       let serverG'' = serialize serverG'
-                      if  ShowableJson serverG'' /= ShowableJson clientS'
-                        then pure $ ServerSerializedMismatch
-                                { serverG: ShowableJson serverG''
-                                , clientS: ShowableJson clientS'
-                                , serverGReceived: fromUtf8String $ show $ ShowableJson serverG''
-                                , clientSSent: fromUtf8String $ show $ ShowableJson clientS'
-                                }
-                        else ServerSerializedMatch <$> x clientS'
+                      in  case diffJson serverG'' clientS' of
+                        Just diff ->
+                          pure $ ServerSerializedMismatch
+                            { serverG: ShowableJson serverG''
+                            , clientS: ShowableJson clientS'
+                            , serverGReceived: fromUtf8String $ show $ ShowableJson serverG''
+                            , clientSSent: fromUtf8String $ show $ ShowableJson clientS'
+                            , diff
+                            }
+                        Nothing -> ServerSerializedMatch <$> x clientS'
 
             serverDMatch :: Json
                          -> Effect
