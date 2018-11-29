@@ -28,9 +28,6 @@ import URI.Host.RegName as RegName
 import URI.Port as Port
 import Data.Argonaut (class EncodeJson, class DecodeJson, encodeJson, decodeJson)
 import Type.Proxy (Proxy (..))
--- import Control.Monad.Eff (Eff)
--- import Control.Monad.Eff.Console (CONSOLE, log)
--- import Control.Monad.Eff.Ref (REF)
 import Effect (Effect)
 import Effect.Console (log)
 import Test.QuickCheck (quickCheck, Result (..))
