@@ -7,7 +7,7 @@ import Test.Serialization.Types
   , HasServerG (..), getTopicState
   , generateValue, gotServerGenValue, gotServerSerialize, gotServerDeSerialize
   , deserializeValueServerOrigin, serializeValueServerOrigin, verify
-  , toUtf8String, ShowableJson (..)
+  , toUtf8String, ShowableJson (..), ShowableBuffer (..)
   )
 
 import Prelude
@@ -76,6 +76,7 @@ startClient {controlHost,testSuite,maxSize} = do
   setOption client zmqIdentity ident
 
   suiteStateRef <- emptyTestSuiteState
+  -- get all topics
   topics <- do
     runReaderT testSuite suiteStateRef
     Set.fromFoldable <<< Map.keys <$> Ref.read suiteStateRef
@@ -84,7 +85,7 @@ startClient {controlHost,testSuite,maxSize} = do
 
   let resolve eX = case eX of
         Left e -> throwException e
-        Right _ -> pure unit
+        Right _ -> pure unit -- TODO close connection
 
   runAff_ resolve $ do
     _ <- liftEffect $ send client GetTopics
@@ -109,7 +110,7 @@ startClient {controlHost,testSuite,maxSize} = do
                       GenValue outgoing -> do
                         o' <- liftEffect $ send client outgoing
                         runExists (\(TestTopicState {clientGSent}) ->
-                          liftEffect $ Ref.write (Just o') clientGSent) state
+                          liftEffect $ Ref.write (Just (ShowableBuffer o')) clientGSent) state
                       DoneGenerating -> liftEffect $ throw "Done generating on init?"
               pure unit
             | otherwise -> liftEffect $ throw $ "Mismatched topics: "
@@ -153,7 +154,7 @@ receiveClient suiteStateRef client topicsPendingRef maxSize = forever $ do
                 -- verify
                 Serialized -> do
                   runExists (\(TestTopicState {serverSReceived}) ->
-                    liftEffect $ Ref.write (Just incoming) serverSReceived) state
+                    liftEffect $ Ref.write (Just (ShowableBuffer incoming)) serverSReceived) state
                   mOk <- liftEffect $ gotServerSerialize state y
                   if isOkay mOk
                     then do
@@ -162,12 +163,12 @@ receiveClient suiteStateRef client topicsPendingRef maxSize = forever $ do
                         HasServerS (DesValue outgoing) -> do
                           o' <- liftEffect $ send client outgoing
                           runExists (\(TestTopicState {clientDSent}) ->
-                            liftEffect $ Ref.write (Just o') clientDSent) state
+                            liftEffect $ Ref.write (Just (ShowableBuffer o')) clientDSent) state
                         _ -> liftEffect $ fail' suiteStateRef client "Bad deserialize value: " t mOutgoing
                     else liftEffect $ fail' suiteStateRef client "Bad got serialize: " t mOk
                 GeneratedInput -> do
                   runExists (\(TestTopicState {serverGReceived}) ->
-                    liftEffect $ Ref.write (Just incoming) serverGReceived) state
+                    liftEffect $ Ref.write (Just (ShowableBuffer incoming)) serverGReceived) state
                   mOk <- liftEffect $ gotServerGenValue state y
                   if isOkay mOk
                     then do
@@ -176,12 +177,12 @@ receiveClient suiteStateRef client topicsPendingRef maxSize = forever $ do
                         HasServerG outgoing -> do
                           o' <- liftEffect $ send client outgoing
                           runExists (\(TestTopicState {clientSSent}) ->
-                            liftEffect $ Ref.write (Just o') clientSSent) state
+                            liftEffect $ Ref.write (Just (ShowableBuffer o')) clientSSent) state
                         _ -> liftEffect $ fail' suiteStateRef client "Bad serialize value: " t mOutgoing
                     else liftEffect $ fail' suiteStateRef client "Bad got gen: " t mOk
                 DeSerialized -> do
                   runExists (\(TestTopicState {serverDReceived}) ->
-                    liftEffect $ Ref.write (Just incoming) serverDReceived) state
+                    liftEffect $ Ref.write (Just (ShowableBuffer incoming)) serverDReceived) state
                   mOk <- liftEffect $ gotServerDeSerialize state y
                   if isOkay mOk
                     then do
@@ -200,7 +201,7 @@ receiveClient suiteStateRef client topicsPendingRef maxSize = forever $ do
                   GenValue outgoing -> do
                     o' <- liftEffect $ send client outgoing
                     runExists (\(TestTopicState {clientGSent}) ->
-                      liftEffect $ Ref.write (Just o') clientGSent) state
+                      liftEffect $ Ref.write (Just (ShowableBuffer o')) clientGSent) state
                   DoneGenerating -> do
                     _ <- liftEffect $ send client (Finished t)
                     liftEffect $ log $ "Topic finished: " <> show t
@@ -317,4 +318,7 @@ dumpTopic xsRef t = do
     showBuffer bufRef prefix = do
       mBuf <- Ref.read bufRef
       log $ prefix <> show mBuf
-      log $ prefix <> show (toUtf8String <$> mBuf)
+      let utf8Buf = case mBuf of
+            Nothing -> Nothing
+            Just (ShowableBuffer x) -> Just (toUtf8String x)
+      log $ prefix <> show utf8Buf

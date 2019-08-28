@@ -11,22 +11,22 @@
     "url": "git://github.com/athanclark/purescript-haskell-iso.git"
   },
   "dependencies": {
-    "purescript-prelude": "^4.1.0",
-    "purescript-quickcheck": "^5.0.0",
+    "purescript-prelude": "^4.1.1",
+    "purescript-quickcheck": "^6.1.0",
     "purescript-now": "^4.0.0",
     "purescript-string-parsers": "^5.0.0",
     "purescript-js-date": "^6.0.0",
-    "purescript-zeromq": "^0.0.5",
+    "purescript-zeromq": "^0.0.6",
     "purescript-bignumber": "^1.0.0",
-    "purescript-uuid": "^5.0.0",
+    "purescript-uuid": "^6.0.0",
     "purescript-unorm": "^1.0.0",
-    "purescript-numbers": "^6.0.0",
+    "purescript-numbers": "^7.0.0",
     "purescript-yarn": "^4.0.0",
-    "purescript-email-validate": "^4.0.0",
-    "purescript-typelevel": "^4.0.0",
-    "purescript-ordered-collections": "^1.4.0",
-    "purescript-uri": "^6.0.0",
-    "purescript-argonaut": "4.0.1"
+    "purescript-email-validate": "^5.0.0",
+    "purescript-typelevel": "git://github.com/athanclark/purescript-typelevel.git#609e8b28e9aa912988085906e0ac5ea5b9b49ca0",
+    "purescript-ordered-collections": "^1.6.1",
+    "purescript-uri": "^7.0.0",
+    "purescript-argonaut": "6.0.0"
   },
   "license": "BSD-3-Clause",
   "devDependencies": {

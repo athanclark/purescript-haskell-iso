@@ -43,37 +43,33 @@ import Node.Encoding (Encoding (UTF8)) as Buffer
 
 -- * Network Messages
 
+-- | Internally used for testing
 newtype TestTopic = TestTopic String
 derive instance genericTestTopic :: Generic TestTopic _
 derive newtype instance eqTestTopic :: Eq TestTopic
 derive newtype instance ordTestTopic :: Ord TestTopic
 derive newtype instance showTestTopic :: Show TestTopic
-
 instance arbitraryTestTopic :: Arbitrary TestTopic where
   arbitrary = TestTopic <$> arbitraryNonEmptyText
     where
       arbitraryNonEmptyText = String.fromChars
                            <$> arrayOf1 (elements $ NonEmpty 'a' $ enumFromTo 'b' 'z')
-
 instance encodeJsonTestTopic :: EncodeJson TestTopic where
   encodeJson (TestTopic x) = encodeJson x
-
 instance decodeJsonTestTopic :: DecodeJson TestTopic where
   decodeJson json = TestTopic <$> decodeJson json
 
-
+-- | The state of affairs on either the sender or recipient of a message
 data MsgType
   = GeneratedInput
   | Serialized
   | DeSerialized
   | Failure
-
 derive instance genericMsgType :: Generic MsgType _
 instance eqMsgType :: Eq MsgType where
   eq = genericEq
 instance showMsgType :: Show MsgType where
   show = genericShow
-
 instance arbitraryMsgType :: Arbitrary MsgType where
   arbitrary = oneOf $ NonEmpty
     (pure GeneratedInput)
@@ -81,14 +77,12 @@ instance arbitraryMsgType :: Arbitrary MsgType where
     , pure DeSerialized
     , pure Failure
     ]
-
 instance encodeJsonMsgType :: EncodeJson MsgType where
   encodeJson x = encodeJson $ case x of
     GeneratedInput -> "generated"
     Serialized -> "serialized"
     DeSerialized -> "deserialized"
     Failure -> "failure"
-
 instance decodeJsonMsgType :: DecodeJson MsgType where
   decodeJson json = do
     s <- decodeJson json
@@ -100,24 +94,35 @@ instance decodeJsonMsgType :: DecodeJson MsgType where
         | otherwise -> fail "MsgType"
 
 
+-- FIXME add more options for generating json
 arbitraryJson :: Gen Json
 arbitraryJson = oneOf $ NonEmpty
   ((encodeJson :: Int -> Json) <$> arbitrary)
   []
 
 
+-- | All messages from the client to the server. Protocol proceeds as follows:
+-- |
+-- | 1. Client connects to server
+-- | 2. Client asks server for topics it supports
+-- | 3. Server responds with set of supported topics
+-- | 4. a) If client topics == server topics, generate a test case
+-- | 4. b) Client "sends" the test case to server
+-- | 4. c) Server "serializes" the interpreted value, sends it to client
+-- | 4. d) Client "deserializes" the value, checks if it's equal to the sent value
+-- | 4. e) if it's not equal, fail. If it is, continue `n` times.
+-- | 5. a) If a bad parse occurs, throw an error and relay the message to the peer
+-- | 5. b) Else, Continue until all cases have been generated.
 data ClientToServer
-  = GetTopics
-  | ClientToServer TestTopic MsgType ShowableJson
-  | ClientToServerBadParse String
-  | Finished TestTopic
-
+  = GetTopics -- ^ Get supported topics
+  | ClientToServer TestTopic MsgType ShowableJson -- ^ Genuine test message for a topic
+  | ClientToServerBadParse String -- ^ Relaying the inability to parse a message
+  | Finished TestTopic -- ^ Test finished successfully for a topic
 derive instance genericClientToServer :: Generic ClientToServer _
 instance eqClientToServer :: Eq ClientToServer where
   eq = genericEq
 instance showClientToServer :: Show ClientToServer where
   show = genericShow
-
 instance arbitraryClientToServer :: Arbitrary ClientToServer where
   arbitrary = oneOf $ NonEmpty
     (pure GetTopics)
@@ -128,14 +133,12 @@ instance arbitraryClientToServer :: Arbitrary ClientToServer where
     where
       arbitraryNonEmptyText = String.fromChars
                            <$> arrayOf1 (elements $ NonEmpty 'a' $ enumFromTo 'b' 'z')
-
 instance encodeJsonClientToServer :: EncodeJson ClientToServer where
   encodeJson x = case x of
     GetTopics -> encodeJson "getTopics"
     ClientToServer t m y -> "topic" := t ~> "msgType" := m ~> "value" := y ~> jsonEmptyObject
     ClientToServerBadParse y -> "badParse" := y ~> jsonEmptyObject
     Finished y -> "finished" := y ~> jsonEmptyObject
-
 instance decodeJsonClientToServer :: DecodeJson ClientToServer where
   decodeJson json = do
     let str = do
@@ -152,18 +155,17 @@ instance decodeJsonClientToServer :: DecodeJson ClientToServer where
     str <|> obj
 
 
+-- | All messages from the server to the client
 data ServerToClient
-  = TopicsAvailable (Set TestTopic)
-  | ServerToClient TestTopic MsgType ShowableJson
-  | ServerToClientBadParse String
-  | Continue TestTopic
-
+  = TopicsAvailable (Set TestTopic) -- ^ Tells the client which topics it supports
+  | ServerToClient TestTopic MsgType ShowableJson -- ^ Genuine test message for a topic
+  | ServerToClientBadParse String -- ^ Relaying the inability to parse a message
+  | Continue TestTopic -- ^ Give the server another test case, from the client
 derive instance genericServerToClient :: Generic ServerToClient _
 instance eqServerToClient :: Eq ServerToClient where
   eq = genericEq
 instance showServerToClient :: Show ServerToClient where
   show = genericShow
-
 instance arbitraryServerToClient :: Arbitrary ServerToClient where
   arbitrary = oneOf $ NonEmpty
     (TopicsAvailable <<< (Set.fromFoldable :: Array TestTopic -> Set TestTopic) <$> arbitrary)
@@ -174,14 +176,12 @@ instance arbitraryServerToClient :: Arbitrary ServerToClient where
     where
       arbitraryNonEmptyText = String.fromChars
                            <$> arrayOf1 (elements $ NonEmpty 'a' $ enumFromTo 'b' 'z')
-
 instance encodeJsonServerToClient :: EncodeJson ServerToClient where
   encodeJson x = case x of
     TopicsAvailable y -> "topics" := (Set.toUnfoldable y :: Array TestTopic) ~> jsonEmptyObject
     ServerToClient t m y -> "topic" := t ~> "msgType" := m ~> "value" := y ~> jsonEmptyObject
     ServerToClientBadParse y -> "badParse" := y ~> jsonEmptyObject
     Continue y -> "continue" := y ~> jsonEmptyObject
-
 instance decodeJsonServerToClient :: DecodeJson ServerToClient where
   decodeJson json = do
     o <- decodeJson json
@@ -196,27 +196,33 @@ instance decodeJsonServerToClient :: DecodeJson ServerToClient where
 
 -- * Internal State
 
+-- | Typeclass instances captured in a data type for any `a`.
+-- |
+-- | `G`: Generated
+-- | `S`: Serialized
+-- | `D`: Deserialized
 newtype TestTopicState a = TestTopicState
-  { generate :: Gen a
-  , serialize :: a -> Json
-  , deserialize :: Json -> Either String a
-  , eq :: a -> a -> Boolean
-  , size :: Ref Int
-  , serverG :: Ref (Maybe a)
-  , serverGReceived :: Ref (Maybe Buffer)
-  , clientS :: Ref (Maybe Json)
-  , clientSSent :: Ref (Maybe Buffer)
-  , serverD :: Ref (Maybe a)
-  , serverDReceived :: Ref (Maybe Buffer)
-  , clientG :: Ref (Maybe a)
-  , clientGSent :: Ref (Maybe Buffer)
-  , serverS :: Ref (Maybe Json)
-  , serverSReceived :: Ref (Maybe Buffer)
-  , clientD :: Ref (Maybe a)
-  , clientDSent :: Ref (Maybe Buffer)
+  { generate        :: Gen a
+  , serialize       :: a -> Json
+  , deserialize     :: Json -> Either String a
+  , eq              :: a -> a -> Boolean
+  , size            :: Ref Int
+  , serverG         :: Ref (Maybe a) -- server first generates
+  , serverGReceived :: Ref (Maybe ShowableBuffer)
+  , clientS         :: Ref (Maybe Json)
+  , clientSSent     :: Ref (Maybe ShowableBuffer)
+  , serverD         :: Ref (Maybe a)
+  , serverDReceived :: Ref (Maybe ShowableBuffer)
+  , clientG         :: Ref (Maybe a) -- then client generates
+  , clientGSent     :: Ref (Maybe ShowableBuffer)
+  , serverS         :: Ref (Maybe Json)
+  , serverSReceived :: Ref (Maybe ShowableBuffer)
+  , clientD         :: Ref (Maybe a)
+  , clientDSent     :: Ref (Maybe ShowableBuffer)
   }
 
 
+-- | Initial state for a topic
 emptyTestTopicState :: forall a
                      . Arbitrary a
                     => EncodeJson a
@@ -227,17 +233,17 @@ emptyTestTopicState :: forall a
 emptyTestTopicState Proxy = do
   size <- Ref.new 1
   (serverG :: Ref (Maybe a)) <- Ref.new Nothing
-  serverGReceived <- Ref.new Nothing
-  clientS <- Ref.new Nothing
-  clientSSent <- Ref.new Nothing
+  serverGReceived            <- Ref.new Nothing
+  clientS                    <- Ref.new Nothing
+  clientSSent                <- Ref.new Nothing
   (serverD :: Ref (Maybe a)) <- Ref.new Nothing
-  serverDReceived <- Ref.new Nothing
+  serverDReceived            <- Ref.new Nothing
   (clientG :: Ref (Maybe a)) <- Ref.new Nothing
-  clientGSent <- Ref.new Nothing
-  serverS <- Ref.new Nothing
-  serverSReceived <- Ref.new Nothing
+  clientGSent                <- Ref.new Nothing
+  serverS                    <- Ref.new Nothing
+  serverSReceived            <- Ref.new Nothing
   (clientD :: Ref (Maybe a)) <- Ref.new Nothing
-  clientDSent <- Ref.new Nothing
+  clientDSent                <- Ref.new Nothing
   pure $ mkExists $ TestTopicState
     { generate: arbitrary
     , serialize: encodeJson
@@ -258,22 +264,23 @@ emptyTestTopicState Proxy = do
     , clientDSent
     }
 
-
+-- | State for each topic, existential in the type variable
 type TestSuiteState = Ref (Map TestTopic (Exists TestTopicState))
 
+-- | Initial state for all test topics
 emptyTestSuiteState :: Effect TestSuiteState
 emptyTestSuiteState = Ref.new Map.empty
 
-
+-- | Control monad
 type TestSuiteM a = ReaderT TestSuiteState Effect a
 
-
+-- | Insert an empty state ref for the type `a`
 registerTopic :: forall a
                . Arbitrary a => EncodeJson a => DecodeJson a => Eq a
               => TestTopic -> Proxy a -> TestSuiteM Unit
 registerTopic topic p = do
   xsRef <- ask
-  liftEffect $ do
+  liftEffect do
     state <- emptyTestTopicState p
     void (Ref.modify (Map.insert topic state) xsRef)
 
@@ -281,35 +288,32 @@ registerTopic topic p = do
 
 -- * Error Reporting
 
+-- | Class for checking the "okayness" of a value - useful for nested error types.
 class IsOkay a where
   isOkay :: a -> Boolean
-
 instance isOkayUnit :: IsOkay JSONUnit where
   isOkay JSONUnit = true
 
 
+-- | Checked if the topic exists in the mapping
 data HasTopic a
   = HasTopic a
   | NoTopic
-
 derive instance genericHasTopic :: Generic a rep => Generic (HasTopic a) _
 instance showHasTopic :: (Show a, Generic a rep) => Show (HasTopic a) where
   show = genericShow
-
 instance isOkayHasTopic :: IsOkay a => IsOkay (HasTopic a) where
   isOkay x = case x of
     NoTopic -> false
     HasTopic y -> isOkay y
 
-
+-- | Generate a new value
 data GenValue a
   = DoneGenerating
   | GenValue a
-
 derive instance genericGenValue :: Generic a rep => Generic (GenValue a) _
 instance showGenValue :: (Show a, Generic a rep) => Show (GenValue a) where
   show = genericShow
-
 instance isOkayGenValue :: IsOkay a => IsOkay (GenValue a) where
   isOkay x = case x of
     DoneGenerating -> false
@@ -319,122 +323,105 @@ instance isOkayGenValue :: IsOkay a => IsOkay (GenValue a) where
 data GotClientGenValue a
   = NoClientGenValue
   | GotClientGenValue a
-
 derive instance genericGotClientGenValue :: Generic a rep => Generic (GotClientGenValue a) _
 instance showGotClientGenValue :: (Show a, Generic a rep) => Show (GotClientGenValue a) where
   show = genericShow
-
 instance isOkayGotClientGenValue :: IsOkay a => IsOkay (GotClientGenValue a) where
   isOkay x = case x of
     NoClientGenValue -> false
     GotClientGenValue y -> isOkay y
 
-
+-- | `clientG` exists in state
 data HasClientG a
   = NoClientG
   | HasClientG a
-
 derive instance genericHasClientG :: Generic a rep => Generic (HasClientG a) _
 instance showHasClientG :: (Show a, Generic a rep) => Show (HasClientG a) where
   show = genericShow
-
 instance isOkayHasClientG :: IsOkay a => IsOkay (HasClientG a) where
   isOkay x = case x of
     NoClientG -> false
     HasClientG y -> isOkay y
 
-
+-- | `serverG` exists in state
 data HasServerG a
   = NoServerG
   | HasServerG a
-
 derive instance genericHasServerG :: Generic a rep => Generic (HasServerG a) _
 instance showHasServerG :: (Show a, Generic a rep) => Show (HasServerG a) where
   show = genericShow
-
 instance isOkayHasServerG :: IsOkay a => IsOkay (HasServerG a) where
   isOkay x = case x of
     NoServerG -> false
     HasServerG y -> isOkay y
 
-
+-- | `serverS` exists in state
 data HasServerS a
   = NoServerS
   | HasServerS a
-
 derive instance genericHasServerS :: Generic a rep => Generic (HasServerS a) _
 instance showHasServerS :: (Show a, Generic a rep) => Show (HasServerS a) where
   show = genericShow
-
 instance isOkayHasServerS :: IsOkay a => IsOkay (HasServerS a) where
   isOkay x = case x of
     NoServerS -> false
     HasServerS y -> isOkay y
 
-
+-- | `serverD` exists in state
 data HasServerD a
   = NoServerD
   | HasServerD a
-
 derive instance genericHasServerD :: Generic a rep => Generic (HasServerD a) _
 instance showHasServerD :: (Show a, Generic a rep) => Show (HasServerD a) where
   show = genericShow
-
 instance isOkayHasServerD :: IsOkay a => IsOkay (HasServerD a) where
   isOkay x = case x of
     NoServerD -> false
     HasServerD y -> isOkay y
 
-
+-- | `clientD` exists in state
 data HasClientD a
   = NoClientD
   | HasClientD a
-
 derive instance genericHasClientD :: Generic a rep => Generic (HasClientD a) _
 instance showHasClientD :: (Show a, Generic a rep) => Show (HasClientD a) where
   show = genericShow
-
 instance isOkayHasClientD :: IsOkay a => IsOkay (HasClientD a) where
   isOkay x = case x of
     NoClientD -> false
     HasClientD y -> isOkay y
 
-
+-- | Deserialized the value
 data DesValue a
   = CantDes String
   | DesValue a
-
 derive instance genericDesValue :: Generic a rep => Generic (DesValue a) _
 instance showDesValue :: (Show a, Generic a rep) => Show (DesValue a) where
   show = genericShow
-
 instance isOkayDesValue :: IsOkay a => IsOkay (DesValue a) where
   isOkay x = case x of
     CantDes _ -> false
     DesValue y -> isOkay y
 
-
+-- | `clientS` exists in state
 data HasClientS a
   = NoClientS
   | HasClientS a
-
 derive instance genericHasClientS :: Generic a rep => Generic (HasClientS a) _
 instance showHasClientS :: (Show a, Generic a rep) => Show (HasClientS a) where
   show = genericShow
-
 instance isOkayHasClientS :: IsOkay a => IsOkay (HasClientS a) where
   isOkay x = case x of
     NoClientS -> false
     HasClientS y -> isOkay y
 
-
+-- | Type that represents the difference between two Json values
 data JsonDiffBuffer
-  = DiffBuffers Buffer Buffer
+  = DiffBuffers ShowableBuffer ShowableBuffer
   | DiffBuffers' (Array Int) (Array Int)
   | DiffArrays (Array ShowableJson) (Array ShowableJson)
   | DiffObjectFields (Tuple String String) (Maybe JsonDiffBuffer)
   | DiffObjects (Array (Tuple String ShowableJson)) (Array (Tuple String ShowableJson))
-
 derive instance genericJsonDiffbuffer :: Generic JsonDiffBuffer _
 instance showJsonDiffBuffer :: Show JsonDiffBuffer where
   show = go
@@ -447,6 +434,7 @@ instance showJsonDiffBuffer :: Show JsonDiffBuffer where
         DiffObjects a b -> "DiffObjects " <> show a <> " " <> show b
 
 
+-- | Determine the difference between two Json values
 diffJson :: Json -> Json -> Maybe JsonDiffBuffer
 diffJson a b =
   case Tuple <$> Argonaut.toString a <*> Argonaut.toString b of
@@ -457,7 +445,7 @@ diffJson a b =
             Nothing
               | a == b -> Nothing
               | otherwise ->
-                let viaShow = fromUtf8String <<< show <<< ShowableJson
+                let viaShow = ShowableBuffer <<< fromUtf8String <<< show <<< ShowableJson
                 in  Just $ DiffBuffers (viaShow a) (viaShow b)
             Just eOA -> case eOA of
               Left (Tuple ao bo) ->
@@ -478,16 +466,14 @@ diffJson a b =
                        in  (\(First x) -> x) $ Array.foldMap First zss
                   else Just (DiffArrays (map ShowableJson aa) (map ShowableJson ba))
     Just (Tuple a' b') ->
-      let a'' = unsafePerformEffect (Buffer.toArray =<< Buffer.fromString a' Buffer.UTF8)
-          b'' = unsafePerformEffect (Buffer.toArray =<< Buffer.fromString b' Buffer.UTF8)
+      let a'' = unsafePerformEffect (Buffer.toArray =<< (Buffer.fromString a' :: _ -> Effect Buffer) Buffer.UTF8)
+          b'' = unsafePerformEffect (Buffer.toArray =<< (Buffer.fromString b' :: _ -> Effect Buffer) Buffer.UTF8)
       in  if a'' == b''
              then Nothing
              else Just (DiffBuffers' a'' b'')
 
-
+-- | Simple wrapper that makes a Json value `show`able
 newtype ShowableJson = ShowableJson Json
-
-
 derive instance genericShowableJson :: Generic ShowableJson _
 instance eqShowableJson :: Eq ShowableJson where
   eq (ShowableJson a) (ShowableJson b) =
@@ -501,79 +487,84 @@ instance encodeJsonShowableJson :: EncodeJson ShowableJson where
 instance decodeJsonShowableJson :: DecodeJson ShowableJson where
   decodeJson json = pure (ShowableJson json)
 
+-- | Simple wrapper that makes a Buffer value `show`able
+newtype ShowableBuffer = ShowableBuffer Buffer
+derive instance genericShowableBuffer :: Generic ShowableBuffer _
+instance eqShowableBuffer :: Eq ShowableBuffer where
+  eq (ShowableBuffer x) (ShowableBuffer y) = unsafePerformEffect do
+    x' <- Buffer.toArray x
+    y' <- Buffer.toArray y
+    pure (x' == y')
+instance showShowableBuffer :: Show ShowableBuffer where
+  show (ShowableBuffer x) = unsafePerformEffect $ show <$> Buffer.toArray x
 
+
+
+-- | Ensures that `serverG` is equal to `clientS`
 data ServerSerializedMatch a
   = ServerSerializedMatch a
   | ServerSerializedMismatch
     { serverG :: ShowableJson
     , clientS :: ShowableJson
-    , serverGReceived :: Buffer
-    , clientSSent :: Buffer
+    , serverGReceived :: ShowableBuffer
+    , clientSSent :: ShowableBuffer
     , diff :: JsonDiffBuffer
     }
-
 derive instance genericServerSerializedMatch :: Generic a rep => Generic (ServerSerializedMatch a) _
 instance showServerSerializedMatch :: (Show a, Generic a rep) => Show (ServerSerializedMatch a) where
   show = genericShow
-
 instance isOkayServerSerializedMatch :: IsOkay a => IsOkay (ServerSerializedMatch a) where
   isOkay x = case x of
     ServerSerializedMismatch _ -> false
     ServerSerializedMatch y -> isOkay y
 
-
+-- | Ensures that `clientS` is equal to `serverD`
 data ServerDeSerializedMatch a
   = ServerDeSerializedMatch a
   | ServerDeSerializedMismatch
     { clientS :: ShowableJson
     , serverD :: ShowableJson
-    , clientSSent :: Buffer
-    , serverDReceived :: Buffer
+    , clientSSent :: ShowableBuffer
+    , serverDReceived :: ShowableBuffer
     }
-
 derive instance genericServerDeSerializedMatch :: Generic a rep => Generic (ServerDeSerializedMatch a) _
 instance showServerDeSerializedMatch :: (Show a, Generic a rep) => Show (ServerDeSerializedMatch a) where
   show = genericShow
-
 instance isOkayServerDeSerializedMatch :: IsOkay a => IsOkay (ServerDeSerializedMatch a) where
   isOkay x = case x of
     ServerDeSerializedMismatch _ -> false
     ServerDeSerializedMatch y -> isOkay y
 
-
+-- | Ensures that `clientG` is equal to `serverS`
 data ClientSerializedMatch a
   = ClientSerializedMatch a
   | ClientSerializedMismatch
     { clientG :: ShowableJson
     , serverS :: ShowableJson
-    , clientGSent :: Buffer
-    , serverSReceived :: Buffer
+    , clientGSent :: ShowableBuffer
+    , serverSReceived :: ShowableBuffer
     , diff :: JsonDiffBuffer
     }
-
 derive instance genericClientSerializedMatch :: Generic a rep => Generic (ClientSerializedMatch a) _
 instance showClientSerializedMatch :: (Show a, Generic a rep) => Show (ClientSerializedMatch a) where
   show = genericShow
-
 instance isOkayClientSerializedMatch :: IsOkay a => IsOkay (ClientSerializedMatch a) where
   isOkay x = case x of
     ClientSerializedMismatch _ -> false
     ClientSerializedMatch y -> isOkay y
 
-
+-- | Ensures that `serverS` is equal to `clientD`
 data ClientDeSerializedMatch a
   = ClientDeSerializedMatch a
   | ClientDeSerializedMismatch
     { serverS :: ShowableJson
     , clientD :: ShowableJson
-    , serverSReceived :: Buffer
-    , clientDSent :: Buffer
+    , serverSReceived :: ShowableBuffer
+    , clientDSent :: ShowableBuffer
     }
-
 derive instance genericClientDeSerializedMatch :: Generic a rep => Generic (ClientDeSerializedMatch a) _
 instance showClientDeSerializedMatch :: (Show a, Generic a rep) => Show (ClientDeSerializedMatch a) where
   show = genericShow
-
 instance isOkayClientDeSerializedMatch :: IsOkay a => IsOkay (ClientDeSerializedMatch a) where
   isOkay x = case x of
     ClientDeSerializedMismatch _ -> false
@@ -731,8 +722,8 @@ verify ex =
                           pure $ ClientSerializedMismatch
                             { clientG: ShowableJson clientG''
                             , serverS: ShowableJson serverS'
-                            , clientGSent: fromUtf8String $ show $ ShowableJson clientG''
-                            , serverSReceived: fromUtf8String $ show $ ShowableJson serverS'
+                            , clientGSent: ShowableBuffer $ fromUtf8String $ show $ ShowableJson clientG''
+                            , serverSReceived: ShowableBuffer $ fromUtf8String $ show $ ShowableJson serverS'
                             , diff
                             }
                         Nothing -> ClientSerializedMatch <$> x serverS'
@@ -757,8 +748,8 @@ verify ex =
                           pure $ DesValue $ ClientDeSerializedMismatch
                             { serverS: ShowableJson serverS'
                             , clientD: ShowableJson clientD''
-                            , serverSReceived: fromUtf8String $ show $ ShowableJson serverS'
-                            , clientDSent: fromUtf8String $ show $ ShowableJson clientD''
+                            , serverSReceived: ShowableBuffer $ fromUtf8String $ show $ ShowableJson serverS'
+                            , clientDSent: ShowableBuffer $ fromUtf8String $ show $ ShowableJson clientD''
                             }
                         else (DesValue <<< ClientDeSerializedMatch) <$> x
 
@@ -783,8 +774,8 @@ verify ex =
                           pure $ ServerSerializedMismatch
                             { serverG: ShowableJson serverG''
                             , clientS: ShowableJson clientS'
-                            , serverGReceived: fromUtf8String $ show $ ShowableJson serverG''
-                            , clientSSent: fromUtf8String $ show $ ShowableJson clientS'
+                            , serverGReceived: ShowableBuffer $ fromUtf8String $ show $ ShowableJson serverG''
+                            , clientSSent: ShowableBuffer $ fromUtf8String $ show $ ShowableJson clientS'
                             , diff
                             }
                         Nothing -> ServerSerializedMatch <$> x clientS'
@@ -808,8 +799,8 @@ verify ex =
                           pure $ DesValue $ ServerDeSerializedMismatch
                             { clientS: ShowableJson clientS'
                             , serverD: ShowableJson serverD''
-                            , clientSSent: fromUtf8String $ show $ ShowableJson clientS'
-                            , serverDReceived: fromUtf8String $ show $ ShowableJson serverD''
+                            , clientSSent: ShowableBuffer $ fromUtf8String $ show $ ShowableJson clientS'
+                            , serverDReceived: ShowableBuffer $ fromUtf8String $ show $ ShowableJson serverD''
                             }
                         else pure $ DesValue $ ServerDeSerializedMatch JSONUnit
         clientSMatch $ clientDMatch $ serverSMatch serverDMatch
