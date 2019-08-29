@@ -17,7 +17,7 @@
     "purescript-string-parsers": "^5.0.0",
     "purescript-js-date": "^6.0.0",
     "purescript-zeromq": "^0.0.6",
-    "purescript-bignumber": "^1.0.0",
+    "purescript-bignumber": "git://github.com/athanclark/purescript-bignumber.git#d48f80bfd16cd6dc5164f160ea822351df759056",
     "purescript-uuid": "^6.0.0",
     "purescript-unorm": "^1.0.0",
     "purescript-numbers": "^7.0.0",
